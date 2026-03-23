@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PROINTEL 2.0 | Sistema de Gestión Empresarial</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@300;400;600;700;800;900&family=Barlow+Condensed:wght@300;400;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+<div id="app">
+
+    <!-- LANDING -->
+    <section id="view-landing" class="view">
+        <div class="bg-layer">
+            <div class="grid-bg"></div>
+            <div class="glow-orb glow-1"></div>
+            <div class="glow-orb glow-2"></div>
+            <div class="scan-line"></div>
+        </div>
+        <nav class="landing-nav">
+            <div class="nav-brand">
+                <span class="brand-pro">PRO</span><span class="brand-intel">INTEL</span>
+                <span class="brand-tag">v2.0</span>
+            </div>
+            <div class="nav-actions">
+                <button class="btn-cyan" onclick="showSection('view-login')">INICIAR SESIÓN</button>
+            </div>
+        </nav>
+        <div class="hero-layout">
+            <div class="hero-left">
+                <div class="logo-card">
+                    <div class="logo-card-inner">
+                        <div class="logo-card-brand">
+                            <span class="lc-pro">PRO</span><span class="lc-intel">INTEL</span>
+                        </div>
+                        <div class="logo-card-sub">RESIDENTIAL SERVICES</div>
+                    </div>
+                    <div class="logo-card-glow"></div>
+                    <div class="logo-card-corner tl"></div>
+                    <div class="logo-card-corner tr"></div>
+                    <div class="logo-card-corner bl"></div>
+                    <div class="logo-card-corner br"></div>
+                </div>
+            </div>
+            <div class="hero-right">
+                <div class="hero-eyebrow">
+                    <span class="eyebrow-line"></span>
+                    <span class="eyebrow-text">SISTEMA DE GESTIÓN EMPRESARIAL</span>
+                </div>
+                <h1 class="hero-title">
+                    <span class="ht-pro">PRO</span><span class="ht-intel">INTEL</span>
+                </h1>
+                <p class="hero-desc">
+                    Plataforma integral para la gestión de servicios residenciales.<br>
+                    Internet &middot; Cable &middot; Telefonía &middot; Facturación &middot; Inventario.
+                </p>
+
+                <div class="hero-ctas">
+                    <button class="btn-cyan btn-lg" onclick="showSection('view-login')">INICIAR SESIÓN</button>
+                </div>
+            </div>
+            <div class="bg-ghost-text" aria-hidden="true">PROINTEL</div>
+        </div>
+        <div class="landing-footer">
+            <span>© 2025 PROINTEL — Sistema de Gestión Residencial</span>
+            <span class="footer-status"><span class="status-dot"></span> Sistemas operativos</span>
+        </div>
+    </section>
+
+    <!-- LOGIN -->
+    <section id="view-login" class="view hidden">
+        <div class="bg-layer">
+            <div class="grid-bg"></div>
+            <div class="glow-orb glow-1"></div>
+        </div>
+        <nav class="landing-nav">
+            <div class="nav-brand">
+                <span class="brand-pro">PRO</span><span class="brand-intel">INTEL</span>
+                <span class="brand-tag">v2.0</span>
+            </div>
+            <button class="btn-ghost-sm" onclick="showSection('view-landing')">← Volver</button>
+        </nav>
+        <div class="login-wrap">
+            <div class="login-card">
+                <div class="lc-corner tl"></div>
+                <div class="lc-corner tr"></div>
+                <div class="lc-corner bl"></div>
+                <div class="lc-corner br"></div>
+                <div class="login-brand">
+                    <span class="brand-pro">PRO</span><span class="brand-intel">INTEL</span>
+                </div>
+                <p class="login-sub">Control de Acceso al Sistema</p>
+                <form id="login-form">
+                    <div class="field">
+                        <label>USUARIO</label>
+                        <input type="text" id="login-user" placeholder="Ingresa tu usuario" required autocomplete="username" />
+                    </div>
+                    <div class="field">
+                        <label>CONTRASEÑA</label>
+                        <input type="password" id="login-pass" placeholder="••••••••" required autocomplete="current-password" />
+                    </div>
+                    <p id="login-error" class="login-error-msg"></p>
+                    <div class="remember-row">
+                        <label class="remember-label">
+                            <input type="checkbox" id="chk-recordar" />
+                            <span class="remember-box"></span>
+                            Recordar contraseña
+                        </label>
+                        <span class="remember-hint">Sesión local</span>
+                    </div>
+                    <button type="submit" class="btn-cyan btn-full">INGRESAR</button>
+                    <button type="button" class="btn-ghost-sm btn-full-ghost" onclick="showSection('view-landing')">Cancelar</button>
+                </form>
+            </div>
+        </div>
+    </section>
+
+    <!-- DASHBOARD -->
+    <section id="view-dashboard" class="view hidden">
+        <aside class="sidebar">
+            <div class="sidebar-brand">
+                <span class="brand-pro">PRO</span><span class="brand-intel">INTEL</span>
+                <span class="brand-tag">v2.0</span>
+            </div>
+            <div class="sidebar-user">
+                <div class="su-avatar" id="su-avatar">U</div>
+                <div class="su-info">
+                    <span id="user-display">Usuario</span>
+                    <span class="su-role">Operador</span>
+                </div>
+            </div>
+            <nav class="menu">
+                <button onclick="changeTab('servicios')"     class="menu-btn">🏠 Inicio</button>
+                <button onclick="changeTab('importar')"      class="menu-btn">📤 Importar Archivo</button>
+                <button onclick="changeTab('salidas')"       class="menu-btn">📤 Salida</button>
+                <button onclick="changeTab('articulos')"     class="menu-btn">📋 Artículos</button>
+                <button onclick="changeTab('reportes')"      class="menu-btn">📊 Reportes</button>
+                <button onclick="changeTab('bodega')"        class="menu-btn">📦 Inventario Bodega y Cuadrilla</button>
+                <button onclick="changeTab('transferencia')" class="menu-btn">🔄 Transferencia de Inventario</button>
+                <div class="menu-divider"></div>
+                <button onclick="changeTab('usuarios')"      class="menu-btn">👤 Usuarios</button>
+            </nav>
+            <button class="btn-diag" onclick="runDiagnostic()">🔬 Diagnóstico del sistema</button>
+            <button onclick="logout()" class="btn-logout">⏻ &nbsp;Cerrar Sesión</button>
+        </aside>
+        <main class="dash-main">
+            <header class="top-bar">
+                <div class="topbar-left">
+                    <span class="topbar-title" id="topbar-title">Panel de Control</span>
+                </div>
+                <div class="topbar-right">
+                    <span class="topbar-date" id="topbar-date"></span>
+                    <span class="live-clock-wrap">
+                        <span class="clock-dot"></span>
+                        <span id="live-clock">00:00:00</span>
+                    </span>
+                </div>
+            </header>
+            <div id="dashboard-content"></div>
+        </main>
+    </section>
+
+</div>
+<script src="supabase.js"></script>
+<script src="app.js"></script>
+<script>
+    // Parche: sincroniza topbar-title y avatar al cambiar tab
+    const _origChangeTab = window.changeTab;
+    window.changeTab = function(tab) {
+        const titulos = { servicios:'Panel de Servicios', bodega:'Bodega / Series', facturas:'Facturación', usuarios:'Gestión de Usuarios' };
+        const el = document.getElementById('topbar-title');
+        if (el) el.textContent = titulos[tab] || tab;
+        // Marcar botón activo
+        document.querySelectorAll('.menu-btn').forEach(b => {
+            b.classList.toggle('active', b.getAttribute('onclick') === "changeTab('" + tab + "')");
+        });
+        // Avatar con inicial
+        const av = document.getElementById('su-avatar');
+        const ud = document.getElementById('user-display');
+        if (av && ud) av.textContent = (ud.textContent || 'U').charAt(0).toUpperCase();
+        // Fecha
+        const df = document.getElementById('topbar-date');
+        if (df) df.textContent = new Date().toLocaleDateString('es-SV',{weekday:'short',day:'2-digit',month:'short',year:'numeric'});
+        if (_origChangeTab) _origChangeTab(tab);
+    };
+</script>
+</body>
+</html>

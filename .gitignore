@@ -1,0 +1,10 @@
+# Evitar subir credenciales accidentalmente
+supabase.js
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+*.code-workspace
