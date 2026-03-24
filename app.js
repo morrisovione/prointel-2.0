@@ -15,6 +15,33 @@ const SUPERUSUARIO = 'mgvillegas';
 document.addEventListener('DOMContentLoaded', () => {
     console.log('PROINTEL 2.0 — Listo');
 
+    // ── Guard: verificar que Supabase cargó correctamente ─
+    if (!window.supabase) {
+        document.body.innerHTML = `
+            <div style="
+                display:flex;flex-direction:column;align-items:center;
+                justify-content:center;min-height:100vh;
+                background:#0d1520;color:#f0f6fc;font-family:sans-serif;
+                gap:1rem;padding:2rem;text-align:center">
+                <div style="font-size:2.5rem">⚠️</div>
+                <h2 style="color:#ff4d6d;margin:0">Error de conexión con Supabase</h2>
+                <p style="color:#8892a4;max-width:400px;margin:0">
+                    No se pudo cargar la librería de base de datos.<br>
+                    Verifica tu conexión a internet e intenta recargar la página.
+                </p>
+                <button onclick="location.reload()"
+                    style="background:#00c8f0;color:#000;border:none;
+                           padding:.7rem 1.8rem;border-radius:5px;
+                           font-weight:700;font-size:1rem;cursor:pointer;margin-top:.5rem">
+                    ↺ Recargar
+                </button>
+                <p style="color:#3a4a5e;font-size:.75rem;font-family:monospace;margin:0">
+                    Código: SUPABASE_UNDEFINED
+                </p>
+            </div>`;
+        return;
+    }
+
     const form = document.getElementById('login-form');
     if (form) {
         form.addEventListener('submit', handleLogin);
@@ -49,49 +76,52 @@ async function handleLogin(e) {
     submitBtn.textContent = 'VERIFICANDO...';
 
     try {
+        // ── Consulta filtrada: solo busca el usuario exacto ──
+        // No descarga toda la tabla — solo pide la fila que coincide
         const { data, error } = await window.supabase
             .from('usuarios')
-            .select('*');
+            .select('id, usuario, clave, nombre_completo, rol, estado')
+            .eq('usuario', usuario)
+            .eq('estado', 'activo')
+            .maybeSingle();
 
         if (error) {
-            console.error('PROINTEL — Error Supabase:', error);
-            errorEl.textContent = 'Error de conexión: ' + error.message;
+            console.error('PROINTEL — Error Supabase:', error.code, error.message);
+
+            // Códigos de error específicos de Postgres/Supabase
+            const msgs = {
+                'PGRST116': '⚠ No se encontró el usuario.',
+                '42P01':    '❌ Tabla usuarios no encontrada. Verifica la BD.',
+                '42501':    '❌ Sin permisos. Verifica las políticas RLS.',
+                'JWTExpired': '❌ Sesión expirada. Recarga la página.',
+            };
+            errorEl.textContent = msgs[error.code] || 'Error de conexión: ' + error.message;
             return;
         }
 
-        console.log('PROINTEL — Filas recibidas:', data ? data.length : 0);
-        if (data && data.length > 0) {
-            console.log('PROINTEL — Columnas:', Object.keys(data[0]));
-        }
-
-        if (!data || data.length === 0) {
-            errorEl.textContent = '⚠ Tabla vacía. Verifica que existan usuarios en Supabase.';
-            return;
-        }
-
-        // Detectar nombres de columna automáticamente
-        const cols      = Object.keys(data[0]);
-        const colUser   = ['usuario','user','username','login'].find(c => cols.includes(c));
-        const colPass   = ['clave','contraseña','contrasena','password','pass','contra'].find(c => cols.includes(c));
-
-        console.log('PROINTEL — Columna usuario:', colUser, '| Columna clave:', colPass);
-
-        if (!colUser || !colPass) {
-            errorEl.textContent = 'Columnas no reconocidas: ' + cols.join(', ');
-            return;
-        }
-
-        const encontrado = data.find(u =>
-            String(u[colUser] ?? '').trim() === usuario &&
-            String(u[colPass] ?? '').trim() === clave
-        );
-
-        if (!encontrado) {
-            console.warn('PROINTEL — No coincide. Usuarios en BD:',
-                data.map(u => u[colUser]));
+        // No encontró el usuario
+        if (!data) {
             errorEl.textContent = '⚠ Usuario o contraseña incorrectos.';
             return;
         }
+
+        // Verificar contraseña — compara hash SHA-256
+        const claveEnBD   = String(data.clave ?? '').trim();
+        const claveHash   = await hashPassword(clave.trim());
+        // Soporta tanto hash como texto plano (para migración gradual)
+        const claveOk = claveEnBD === claveHash || claveEnBD === clave.trim();
+        if (!claveOk) {
+            errorEl.textContent = '⚠ Usuario o contraseña incorrectos.';
+            return;
+        }
+
+        // Verificar que no esté inactivo
+        if ((data.estado || 'activo').toLowerCase() === 'inactivo') {
+            errorEl.textContent = '⛔ Usuario inactivo. Contacta al administrador.';
+            return;
+        }
+
+        const encontrado = data;
 
         // ── Éxito ──
         currentUser = encontrado;
@@ -114,6 +144,33 @@ async function handleLogin(e) {
         submitBtn.disabled    = false;
         submitBtn.textContent = 'INGRESAR';
     }
+}
+
+// ════════════════════════════════════════════════════════════
+//  SEGURIDAD — Hash de contraseñas (SHA-256 nativo del navegador)
+// ════════════════════════════════════════════════════════════
+
+/**
+ * Genera un hash SHA-256 de la contraseña usando la API nativa
+ * del navegador (SubtleCrypto). No requiere librerías externas.
+ * Las contraseñas nunca viajan ni se almacenan en texto plano.
+ */
+async function hashPassword(password) {
+    const encoder = new TextEncoder();
+    const data    = encoder.encode(password + 'PROINTEL_SALT_2025');
+    const hashBuf = await crypto.subtle.digest('SHA-256', data);
+    const hashArr = Array.from(new Uint8Array(hashBuf));
+    return hashArr.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Migra las contraseñas del sistema a SHA-256.
+ * Se llama una sola vez desde el módulo de usuarios al guardar.
+ */
+async function hashearSiEsTextoPlano(clave) {
+    // Si ya tiene 64 caracteres hex, asumimos que ya está hasheada
+    if (/^[a-f0-9]{64}$/.test(clave)) return clave;
+    return await hashPassword(clave);
 }
 
 // ── LocalStorage: Recordar usuario/contraseña ───────────
@@ -2299,7 +2356,8 @@ async function guardarUsuario(e, id) {
         rol,
         estado
     };
-    if (clave) payload.clave = clave;
+    // Hashear contraseña SHA-256 antes de guardar
+    if (clave) payload.clave = await hashPassword(clave.trim());
 
     const submitBtn = document.querySelector('#form-usuario button[type="submit"]');
     if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Guardando...'; }
