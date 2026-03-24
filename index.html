@@ -10,6 +10,7 @@
     <link rel="stylesheet" href="styles.css">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
 <div id="app">
@@ -168,26 +169,6 @@
 </div>
 <script src="supabase.js"></script>
 <script src="app.js"></script>
-<script>
-    // Parche: sincroniza topbar-title y avatar al cambiar tab
-    const _origChangeTab = window.changeTab;
-    window.changeTab = function(tab) {
-        const titulos = { servicios:'Panel de Servicios', bodega:'Bodega / Series', facturas:'Facturación', usuarios:'Gestión de Usuarios' };
-        const el = document.getElementById('topbar-title');
-        if (el) el.textContent = titulos[tab] || tab;
-        // Marcar botón activo
-        document.querySelectorAll('.menu-btn').forEach(b => {
-            b.classList.toggle('active', b.getAttribute('onclick') === "changeTab('" + tab + "')");
-        });
-        // Avatar con inicial
-        const av = document.getElementById('su-avatar');
-        const ud = document.getElementById('user-display');
-        if (av && ud) av.textContent = (ud.textContent || 'U').charAt(0).toUpperCase();
-        // Fecha
-        const df = document.getElementById('topbar-date');
-        if (df) df.textContent = new Date().toLocaleDateString('es-SV',{weekday:'short',day:'2-digit',month:'short',year:'numeric'});
-        if (_origChangeTab) _origChangeTab(tab);
-    };
-</script>
+<!-- Lógica de tabs integrada en app.js -->
 </body>
 </html>

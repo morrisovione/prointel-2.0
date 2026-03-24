@@ -40,8 +40,11 @@ input  { font-family: inherit; }
 
 /* ── Utilidades ─────────────────────────────── */
 .hidden { display: none !important; }
-.view   { display: none; min-height: 100vh; position: relative; }
-#view-landing { display: block; } /* Landing visible por defecto hasta que JS tome control */
+.view   { min-height: 100vh; position: relative; }
+/* Todas las vistas arrancan ocultas — JS controla cuál mostrar */
+#view-landing,
+#view-login,
+#view-dashboard { display: none; }
 
 /* ═══════════════════════════════════════════════
    FONDO ANIMADO
@@ -513,12 +516,7 @@ input  { font-family: inherit; }
     grid-template-columns: 240px 1fr;
     min-height: 100vh;
 }
-/* Cuando hidden está presente, forzar ocultamiento sin importar el display base */
-#view-dashboard.hidden,
-#view-login.hidden,
-#view-landing.hidden {
-    display: none !important;
-}
+/* display controlado por JS en showSection */
 
 /* ── Sidebar ────────────────────────────────── */
 .sidebar {

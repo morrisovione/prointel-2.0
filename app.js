@@ -1,6 +1,4 @@
 // ══════════════════════════════════════════════
-//  PROINTEL 2.0 — app.js  (versión limpia)
-// ══════════════════════════════════════════════
 
 // ── Variables globales ────────────────────────
 let currentUser     = null;
@@ -79,12 +77,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ── Navegación ────────────────────────────────
 function showSection(id) {
-    // Limpiar formulario al entrar a login para no exponer datos residuales
+    // Limpiar formulario al entrar a login
     if (id === 'view-login') limpiarVistaLogin();
 
-    document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
+    // Ocultar TODAS las secciones usando style.display directamente
+    // — evita conflictos de especificidad CSS entre .hidden y #id
+    const VISTAS = ['view-landing', 'view-login', 'view-dashboard'];
+    VISTAS.forEach(vid => {
+        const v = document.getElementById(vid);
+        if (!v) return;
+        v.style.display = 'none';
+        v.classList.add('hidden');
+    });
+
     const el = document.getElementById(id);
-    if (el) el.classList.remove('hidden');
+    if (el) {
+        el.classList.remove('hidden');
+        el.style.display = (id === 'view-dashboard') ? 'grid' : 'block';
+    }
 }
 
 // ── Login ─────────────────────────────────────
