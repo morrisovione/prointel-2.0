@@ -68,7 +68,10 @@ document.addEventListener('DOMContentLoaded', () => {
         console.error('PROINTEL — No se encontró #login-form en el DOM');
     }
 
-    // ── Cargar datos guardados en localStorage ────────────
+    // ── Limpiar formulario por si hay datos residuales ──────
+    limpiarVistaLogin();
+
+    // ── Solo rellenar si el usuario activó "recordar" ────────
     cargarDatosRecordados();
 
     showSection('view-landing');
@@ -76,6 +79,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ── Navegación ────────────────────────────────
 function showSection(id) {
+    // Limpiar formulario al entrar a login para no exponer datos residuales
+    if (id === 'view-login') limpiarVistaLogin();
+
     document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
     const el = document.getElementById(id);
     if (el) el.classList.remove('hidden');
@@ -221,40 +227,61 @@ function guardarDatosRecordados(usuario, clave) {
 }
 
 /**
- * Al cargar la página: rellena los campos con los datos guardados.
+ * Al cargar la página: rellena los campos SOLO si el usuario
+ * activó "Recordar contraseña". Sin ese permiso explícito,
+ * el formulario aparece vacío y limpio.
  */
 function cargarDatosRecordados() {
-    const usuarioGuardado  = localStorage.getItem(LS_USUARIO);
-    const claveGuardada    = localStorage.getItem(LS_CLAVE);
     const recordarGuardado = localStorage.getItem(LS_RECORDAR);
+
+    // Solo rellenar si el usuario lo pidió explícitamente
+    if (recordarGuardado !== '1') return;
+
+    const usuarioGuardado = localStorage.getItem(LS_USUARIO);
+    const claveGuardada   = localStorage.getItem(LS_CLAVE);
 
     const campoUsuario = document.getElementById('login-user');
     const campoClave   = document.getElementById('login-pass');
     const chkRecordar  = document.getElementById('chk-recordar');
 
-    if (campoUsuario && usuarioGuardado) {
-        campoUsuario.value = usuarioGuardado;
-    }
+    if (campoUsuario && usuarioGuardado) campoUsuario.value = usuarioGuardado;
+    if (chkRecordar) chkRecordar.checked = true;
 
-    if (recordarGuardado === '1' && claveGuardada) {
+    if (claveGuardada) {
         try {
             if (campoClave) campoClave.value = decodeURIComponent(escape(atob(claveGuardada)));
-            if (chkRecordar) chkRecordar.checked = true;
         } catch (e) {
-            // Si la clave guardada está corrupta, la borramos
             localStorage.removeItem(LS_CLAVE);
             localStorage.removeItem(LS_RECORDAR);
         }
     }
 }
 
+/**
+ * Limpia visualmente el formulario de login.
+ * Se llama al mostrar la pantalla de login para
+ * que nunca aparezcan datos residuales de sesiones anteriores.
+ */
+function limpiarVistaLogin() {
+    const campos = ['login-user','login-pass','login-error'];
+    campos.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (el.tagName === 'INPUT') el.value = '';
+        else el.textContent = '';
+    });
+    const chk = document.getElementById('chk-recordar');
+    if (chk) chk.checked = false;
+}
+
 // ── Logout ────────────────────────────────────
 function logout() {
     currentUser     = null;
     cacheInventario = [];
-    localStorage.removeItem('prointel_session');
     cacheFacturas   = [];
+    localStorage.removeItem('prointel_session');
     detenerReloj();
+    limpiarVistaLogin();   // Limpiar formulario antes de mostrar landing
     showSection('view-landing');
 }
 
