@@ -15,6 +15,25 @@ const SUPERUSUARIO = 'mgvillegas';
 document.addEventListener('DOMContentLoaded', () => {
     console.log('PROINTEL 2.0 — Listo');
 
+    // ── Restaurar sesión si el usuario recargó la página ─
+    const sesionGuardada = localStorage.getItem('prointel_session');
+    if (sesionGuardada) {
+        try {
+            currentUser = JSON.parse(sesionGuardada);
+            const nombre = currentUser.nombre_completo || currentUser.usuario || 'Usuario';
+            const userEl = document.getElementById('user-display');
+            if (userEl) userEl.textContent = nombre;
+            showSection('view-dashboard');
+            iniciarReloj();
+            aplicarPermisosTecnico();
+            changeTab('servicios');
+            cargarDatosRecordados();
+            return; // No mostrar landing si ya hay sesión
+        } catch (e) {
+            localStorage.removeItem('prointel_session');
+        }
+    }
+
     // ── Guard: verificar que Supabase cargó correctamente ─
     if (!window.supabase) {
         document.body.innerHTML = `
@@ -131,6 +150,8 @@ async function handleLogin(e) {
 
         // ── Guardar en localStorage ───────────────────────
         guardarDatosRecordados(usuario, clave);
+        // Persistir sesión para sobrevivir recargas de página
+        localStorage.setItem('prointel_session', JSON.stringify(encontrado));
 
         showSection('view-dashboard');
         iniciarReloj();
@@ -231,6 +252,7 @@ function cargarDatosRecordados() {
 function logout() {
     currentUser     = null;
     cacheInventario = [];
+    localStorage.removeItem('prointel_session');
     cacheFacturas   = [];
     detenerReloj();
     showSection('view-landing');
@@ -1857,161 +1879,513 @@ async function eliminarArticulo(id, nombre) {
     cargarInventarioBodega();
 }
 
+
+// ════════════════════════════════════════════════════════════
+//  MÓDULO: SALIDA DE INVENTARIO — formulario inteligente
+// ════════════════════════════════════════════════════════════
+let cacheSalidas        = [];
+let _firmaCanvas        = null;
+let _firmaCtx           = null;
+let _firmaDibujando     = false;
+let _articuloSeleccionado = null;
+
 async function cargarSalidas() {
     const content = document.getElementById('dashboard-content');
     content.innerHTML = `
         <div class="module-header">
             <h2>📤 Salida de Inventario</h2>
-            <div style="display:flex;gap:.6rem">
-                <button class="btn-nav" onclick="cargarSalidas()">↺ Actualizar</button>
+            <div class="header-actions">
+                <button class="btn-nav"  onclick="cargarSalidas()">↺ Actualizar</button>
                 <button class="btn-cyan" onclick="abrirModalSalida()">+ Registrar Salida</button>
             </div>
         </div>
-        <div class="inv-stats" id="salidas-stats">
+        <div class="inv-stats" id="sal-stats">
+            <div class="istat loading-placeholder"></div>
             <div class="istat loading-placeholder"></div>
             <div class="istat loading-placeholder"></div>
             <div class="istat loading-placeholder"></div>
         </div>
         <div class="inv-toolbar">
             <div class="search-bar" style="flex:1">
-                <input type="text" id="sal-search" placeholder="🔍  Buscar por serie, destino, responsable…" oninput="filtrarTabla('sal-search','tabla-salidas')" />
+                <input type="text" id="sal-search"
+                    placeholder="🔍  Buscar por serie, destino, OT, responsable…"
+                    oninput="filtrarTabla('sal-search','tabla-salidas')" />
             </div>
+            <select id="filtro-sal-motivo" onchange="filtrarSalidasLive()" class="filter-select">
+                <option value="">Todos los motivos</option>
+                <option value="instalación">Instalación</option>
+                <option value="venta">Venta</option>
+                <option value="préstamo">Préstamo</option>
+                <option value="traslado">Traslado</option>
+                <option value="daño">Daño / Baja</option>
+            </select>
         </div>
         <div class="table-wrap">
             <table class="data-table" id="tabla-salidas">
                 <thead><tr>
-                    <th>#</th><th>Nº SERIE</th><th>MODELO</th><th>MOTIVO</th>
-                    <th>DESTINO</th><th>RESPONSABLE</th><th>CANT.</th><th>FECHA</th>
+                    <th>#</th><th>OT / TICKET</th><th>ARTÍCULO</th>
+                    <th>SERIE / CANT.</th><th>MOTIVO</th><th>TÉCNICO</th>
+                    <th>ESTADO MAT.</th><th>FECHA</th>
                 </tr></thead>
-                <tbody id="salidas-tbody">
-                    <tr><td colspan="8" class="empty-row">⏳ Cargando salidas...</td></tr>
+                <tbody id="sal-tbody">
+                    <tr><td colspan="8" class="empty-row">⏳ Cargando salidas…</td></tr>
                 </tbody>
             </table>
         </div>
-        <p class="table-count" id="salidas-count"></p>`;
+        <p class="table-count" id="sal-count"></p>`;
 
     try {
-        const { data, error } = await window.supabase.from('salidas').select('*').order('created_at', { ascending: false });
+        const { data, error } = await window.supabase
+            .from('salidas').select('*').order('created_at', { ascending: false });
         if (error) throw error;
         cacheSalidas = data || [];
+        renderSalidas(cacheSalidas);
 
-        document.getElementById('salidas-stats').innerHTML = `
-            <div class="istat"><span class="istat-num">${cacheSalidas.length}</span><span class="istat-label">Total salidas</span></div>
-            <div class="istat istat-warn"><span class="istat-num">${cacheSalidas.filter(s=>(s.motivo||'').toLowerCase().includes('venta')).length}</span><span class="istat-label">Por venta</span></div>
-            <div class="istat istat-blue"><span class="istat-num">${cacheSalidas.filter(s=>(s.motivo||'').toLowerCase().includes('instalación')||s.motivo?.toLowerCase().includes('instalacion')).length}</span><span class="istat-label">Instalaciones</span></div>`;
+        const tot  = cacheSalidas.length;
+        const inst = cacheSalidas.filter(s => (s.motivo||'').toLowerCase().includes('instalac')).length;
+        const vent = cacheSalidas.filter(s => (s.motivo||'').toLowerCase().includes('venta')).length;
+        const pres = cacheSalidas.filter(s => (s.motivo||'').toLowerCase().includes('préstamo')||s.motivo?.toLowerCase().includes('prestamo')).length;
 
-        const tbody = document.getElementById('salidas-tbody');
-        const count = document.getElementById('salidas-count');
-        if (!cacheSalidas.length) { tbody.innerHTML = '<tr><td colspan="8" class="empty-row">No hay salidas registradas.</td></tr>'; return; }
-        tbody.innerHTML = cacheSalidas.map((s, idx) => `
-            <tr>
-                <td class="row-num">${idx+1}</td>
-                <td><code>${esc(s.numero_serie||'—')}</code></td>
-                <td class="td-bold">${esc(s.articulo||s.modelo||'—')}</td>
-                <td><span class="cat-pill">${esc(s.motivo||'—')}</span></td>
-                <td>${esc(s.destino||'—')}</td>
-                <td style="font-size:.82rem;color:var(--dim)">${esc(s.responsable||'—')}</td>
-                <td style="text-align:center;font-family:var(--font-mono)">${s.cantidad||1}</td>
-                <td class="td-date">${formatFecha(s.created_at)}</td>
-            </tr>`).join('');
-        if (count) count.textContent = cacheSalidas.length + ' registros';
+        document.getElementById('sal-stats').innerHTML = `
+            <div class="istat"><span class="istat-num">${tot}</span><span class="istat-label">Total salidas</span></div>
+            <div class="istat istat-blue"><span class="istat-num">${inst}</span><span class="istat-label">Instalaciones</span></div>
+            <div class="istat istat-cyan"><span class="istat-num">${vent}</span><span class="istat-label">Ventas</span></div>
+            <div class="istat istat-warn"><span class="istat-num">${pres}</span><span class="istat-label">Préstamos</span></div>`;
+
     } catch(err) {
-        document.getElementById('salidas-tbody').innerHTML = `<tr><td colspan="8" class="empty-row error-msg">❌ ${err.message}</td></tr>`;
+        document.getElementById('sal-tbody').innerHTML =
+            `<tr><td colspan="8" class="empty-row error-msg">❌ ${err.message}</td></tr>`;
     }
 }
 
-function abrirModalSalida() {
-    // Poblar selector con series disponibles
-    const series = cacheInventario.filter(i => (i.estado||'').toLowerCase() !== 'vendido');
-    const optsDisp = series.length
-        ? series.map(i => `<option value="${i.id}" data-serie="${esc(i.serie||'')}" data-modelo="${esc(i.articulo||'')}">${esc(i.serie||i.articulo||'Sin serie')}</option>`).join('')
-        : '<option value="">— Sin series disponibles —</option>';
+function renderSalidas(filas) {
+    const tbody = document.getElementById('sal-tbody');
+    const count = document.getElementById('sal-count');
+    if (!filas || !filas.length) {
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-row">No hay salidas registradas.</td></tr>';
+        if (count) count.textContent = ''; return;
+    }
+    tbody.innerHTML = filas.map((s, idx) => `
+        <tr>
+            <td class="row-num">${idx+1}</td>
+            <td><code class="sku-code">${esc(s.numero_ot || '—')}</code></td>
+            <td class="td-bold">${esc(s.modelo || s.nombre_articulo || '—')}</td>
+            <td>
+                ${s.numero_serie
+                    ? `<code class="serie-code">${esc(s.numero_serie)}</code>`
+                    : `<span style="font-family:var(--font-mono);color:var(--dim)">${s.cantidad||1} uds.</span>`}
+            </td>
+            <td><span class="cat-pill">${esc(s.motivo || '—')}</span></td>
+            <td style="font-size:.82rem">${esc(s.responsable || '—')}</td>
+            <td>
+                ${s.estado_material
+                    ? `<span class="badge ${s.estado_material==='nuevo'?'badge-disponible':'badge-reservado'}">${esc(s.estado_material)}</span>`
+                    : '—'}
+            </td>
+            <td class="td-date">${formatFecha(s.created_at)}</td>
+        </tr>`).join('');
+    if (count) count.textContent = filas.length + ' registros';
+}
+
+function filtrarSalidasLive() {
+    const q   = (document.getElementById('sal-search')?.value||'').toLowerCase();
+    const mot = (document.getElementById('filtro-sal-motivo')?.value||'').toLowerCase();
+    renderSalidas(cacheSalidas.filter(s => {
+        const mQ = !q || (s.numero_serie||'').toLowerCase().includes(q)
+                       || (s.modelo||'').toLowerCase().includes(q)
+                       || (s.responsable||'').toLowerCase().includes(q)
+                       || (s.numero_ot||'').toLowerCase().includes(q);
+        const mM = !mot || (s.motivo||'').toLowerCase().includes(mot);
+        return mQ && mM;
+    }));
+}
+
+// ── Modal Salida — formulario inteligente ─────────────────
+async function abrirModalSalida() {
+    // Cargar técnicos de la tabla usuarios
+    const { data: tecnicos } = await window.supabase
+        .from('usuarios')
+        .select('usuario, nombre_completo, cuadrilla, rol')
+        .eq('estado','activo')
+        .order('nombre_completo');
+
+    const optsTec = (tecnicos||[]).map(t =>
+        `<option value="${esc(t.nombre_completo||t.usuario)}"
+            data-cuadrilla="${esc(t.cuadrilla||'')}"
+            data-usuario="${esc(t.usuario||'')}">
+            ${esc(t.nombre_completo||t.usuario)}
+         </option>`
+    ).join('');
 
     document.body.insertAdjacentHTML('beforeend', `
         <div class="modal-overlay" id="modal-salida" onclick="cerrarModalClick(event,'modal-salida')">
-            <div class="modal-content">
+            <div class="modal-content modal-salida-wide">
                 <div class="modal-head">
-                    <span>📤 Registrar Salida</span>
+                    <div class="modal-head-left">
+                        <span class="modal-icon">📤</span>
+                        <span>Registrar Salida de Material</span>
+                    </div>
                     <button class="modal-close" onclick="cerrarModal('modal-salida')">✕</button>
                 </div>
+
                 <form id="form-salida" onsubmit="guardarSalida(event)">
-                    <div class="form-grid">
-                        <div class="field field-full"><label>ARTÍCULO (SERIE) *</label>
-                            <select id="sal-bodega-id" required onchange="autoFillSalida(this)">
-                                <option value="">— Selecciona un artículo —</option>
-                                ${optsDisp}
-                            </select>
+                <div class="salida-grid">
+
+                    <!-- ── Columna izquierda ─────────────── -->
+                    <div class="salida-col">
+
+                        <!-- OT / Ticket obligatorio -->
+                        <div class="field">
+                            <label>Nº OT / TICKET <span class="req">*</span></label>
+                            <input type="text" id="sal-ot" required
+                                placeholder="OT-2025-0001"
+                                style="font-family:var(--font-mono)" />
                         </div>
-                        <div class="field"><label>Nº SERIE</label>
-                            <input type="text" id="sal-serie" placeholder="Auto-completado" /></div>
-                        <div class="field"><label>MODELO</label>
-                            <input type="text" id="sal-modelo" placeholder="Auto-completado" /></div>
-                        <div class="field"><label>MOTIVO *</label>
+
+                        <!-- Buscador predictivo de artículos -->
+                        <div class="field">
+                            <label>ARTÍCULO <span class="req">*</span>
+                                <span id="sal-stock-badge" class="series-count-badge" style="display:none"></span>
+                            </label>
+                            <div style="position:relative">
+                                <input type="text" id="sal-articulo-buscar"
+                                    placeholder="Escribe 3 letras para buscar…"
+                                    autocomplete="off"
+                                    oninput="buscarArticuloSalida(this.value)"
+                                    onkeydown="navSugerencias(event)" />
+                                <div id="sal-sugerencias" class="sal-sugerencias hidden"></div>
+                            </div>
+                            <!-- Código interno del producto -->
+                            <div id="sal-codigo-interno" class="sal-codigo-interno hidden">
+                                <span class="sal-codigo-label">Código interno:</span>
+                                <code id="sal-codigo-val" class="serie-code"></code>
+                            </div>
+                        </div>
+
+                        <!-- Identificador: serie o cantidad (dinámico) -->
+                        <div class="field" id="field-identificador">
+                            <label id="lbl-identificador">NÚMERO DE SERIE / ESCÁNER</label>
+                            <div class="scanner-wrap">
+                                <input type="text" id="sal-identificador"
+                                    class="scanner-input"
+                                    placeholder="Escanea o escribe la serie…"
+                                    autocomplete="off" />
+                                <span id="sal-tipo-badge" class="tipo-badge tipo-seriado">SERIADO</span>
+                            </div>
+                        </div>
+
+                        <!-- Motivo -->
+                        <div class="field">
+                            <label>MOTIVO <span class="req">*</span></label>
                             <select id="sal-motivo" required>
-                                <option value="venta">Venta</option>
                                 <option value="instalación">Instalación</option>
+                                <option value="venta">Venta</option>
                                 <option value="préstamo">Préstamo</option>
                                 <option value="traslado">Traslado</option>
                                 <option value="daño">Daño / Baja</option>
                                 <option value="otro">Otro</option>
                             </select>
                         </div>
-                        <div class="field"><label>CANTIDAD</label>
-                            <input type="number" id="sal-cantidad" value="1" min="1" /></div>
-                        <div class="field"><label>DESTINO / CLIENTE</label>
-                            <input type="text" id="sal-destino" placeholder="Cliente o cuadrilla destino" /></div>
-                        <div class="field"><label>RESPONSABLE</label>
-                            <input type="text" id="sal-resp" placeholder="Nombre del técnico" /></div>
-                        <div class="field field-full"><label>NOTAS</label>
-                            <textarea id="sal-notas" rows="2" placeholder="Observaciones…"></textarea></div>
+
+                        <!-- Estado del material -->
+                        <div class="field">
+                            <label>ESTADO DEL MATERIAL</label>
+                            <div class="tipo-switch" style="grid-template-columns:1fr 1fr">
+                                <label class="tipo-opt active" id="opt-nuevo">
+                                    <input type="radio" name="estado_material" value="nuevo" checked
+                                        onchange="document.querySelectorAll('.tipo-opt').forEach(l=>l.classList.remove('active'));document.getElementById('opt-nuevo').classList.add('active')" />
+                                    <span class="tipo-icon">✨</span>
+                                    <span class="tipo-name">Nuevo</span>
+                                </label>
+                                <label class="tipo-opt" id="opt-reacon">
+                                    <input type="radio" name="estado_material" value="reacondicionado"
+                                        onchange="document.querySelectorAll('.tipo-opt').forEach(l=>l.classList.remove('active'));document.getElementById('opt-reacon').classList.add('active')" />
+                                    <span class="tipo-icon">🔧</span>
+                                    <span class="tipo-name">Reacondicionado</span>
+                                </label>
+                            </div>
+                        </div>
+
                     </div>
-                    <div class="modal-foot">
-                        <button type="button" class="btn-ghost-sm" onclick="cerrarModal('modal-salida')">Cancelar</button>
-                        <button type="submit" class="btn-cyan">Registrar Salida</button>
+
+                    <!-- ── Columna derecha ───────────────── -->
+                    <div class="salida-col">
+
+                        <!-- Técnico responsable -->
+                        <div class="field">
+                            <label>TÉCNICO RESPONSABLE <span class="req">*</span></label>
+                            <select id="sal-tecnico" required
+                                onchange="autoFillCuadrilla(this)">
+                                <option value="">— Seleccionar técnico —</option>
+                                ${optsTec || '<option disabled>Sin técnicos activos</option>'}
+                            </select>
+                        </div>
+
+                        <!-- Cuadrilla (solo lectura, se llena automáticamente) -->
+                        <div class="field">
+                            <label>CUADRILLA / CÓDIGO</label>
+                            <input type="text" id="sal-cuadrilla" readonly
+                                placeholder="Se llena automáticamente"
+                                style="opacity:.7;cursor:not-allowed" />
+                        </div>
+
+                        <!-- Destino -->
+                        <div class="field">
+                            <label>DESTINO / CLIENTE</label>
+                            <input type="text" id="sal-destino"
+                                placeholder="Dirección, cliente o cuadrilla destino" />
+                        </div>
+
+                        <!-- Notas -->
+                        <div class="field">
+                            <label>NOTAS</label>
+                            <textarea id="sal-notas" rows="2"
+                                placeholder="Observaciones adicionales…"></textarea>
+                        </div>
+
+                        <!-- Firma digital -->
+                        <div class="field">
+                            <label>FIRMA DE RECIBIDO
+                                <button type="button" class="btn-autogen"
+                                    onclick="limpiarFirma()">✕ Limpiar</button>
+                            </label>
+                            <div class="firma-wrap">
+                                <canvas id="firma-canvas" class="firma-canvas"
+                                    width="280" height="100"></canvas>
+                                <div class="firma-hint">Firma aquí con el dedo o mouse</div>
+                            </div>
+                        </div>
+
                     </div>
+                </div>
+
+                <div class="modal-foot">
+                    <button type="button" class="btn-ghost-sm"
+                        onclick="cerrarModal('modal-salida')">Cancelar</button>
+                    <button type="submit" class="btn-cyan" id="btn-guardar-sal">
+                        Registrar Salida
+                    </button>
+                </div>
                 </form>
             </div>
         </div>`);
+
+    // Inicializar canvas de firma
+    setTimeout(initFirmaCanvas, 100);
 }
 
-function autoFillSalida(sel) {
+// ── Buscador predictivo de artículos ──────────────────────
+let _buscarTimer = null;
+async function buscarArticuloSalida(q) {
+    clearTimeout(_buscarTimer);
+    const sugEl = document.getElementById('sal-sugerencias');
+    if (!q || q.length < 3) {
+        if (sugEl) sugEl.classList.add('hidden');
+        return;
+    }
+    _buscarTimer = setTimeout(async () => {
+        const qLow = q.toLowerCase();
+        // Buscar en caché primero, luego en BD si no hay datos
+        let resultados = cacheInventario.filter(i =>
+            (i.nombre||'').toLowerCase().includes(qLow) ||
+            (i.articulo||'').toLowerCase().includes(qLow) ||
+            (i.codigo||'').toLowerCase().includes(qLow) ||
+            (i.serie||'').toLowerCase().includes(qLow)
+        );
+        if (!resultados.length) {
+            const { data } = await window.supabase
+                .from('bodega')
+                .select('id,nombre,articulo,codigo,serie,tipo_material,cantidad,estado,precio')
+                .or(`nombre.ilike.%${q}%,articulo.ilike.%${q}%,codigo.ilike.%${q}%,serie.ilike.%${q}%`)
+                .limit(10);
+            resultados = data || [];
+        }
+        if (!sugEl) return;
+        if (!resultados.length) {
+            sugEl.innerHTML = '<div class="sal-sug-empty">Sin resultados para "' + esc(q) + '"</div>';
+            sugEl.classList.remove('hidden');
+            return;
+        }
+        sugEl.innerHTML = resultados.slice(0,8).map(i => {
+            const disp = (i.estado||'').toLowerCase() === 'disponible';
+            const cant = i.tipo_material === 'miscelaneo' ? ` · ${i.cantidad||0} uds.` : '';
+            return `<div class="sal-sug-item ${disp?'':'sal-sug-agotado'}"
+                        onclick="seleccionarArticuloSalida(${JSON.stringify(i).replace(/"/g,'&quot;')})">
+                <div class="sal-sug-nombre">${esc(i.nombre||i.articulo||'—')}</div>
+                <div class="sal-sug-meta">
+                    <code>${esc(i.codigo||i.serie||'sin código')}</code>
+                    <span class="badge badge-${(i.estado||'disponible').toLowerCase()}">${esc(i.estado||'disponible')}</span>
+                    <span>${cant}</span>
+                    <span class="td-price">$${parseFloat(i.precio||0).toFixed(2)}</span>
+                </div>
+            </div>`;
+        }).join('');
+        sugEl.classList.remove('hidden');
+    }, 300);
+}
+
+function seleccionarArticuloSalida(item) {
+    _articuloSeleccionado = item;
+    const buscarEl = document.getElementById('sal-articulo-buscar');
+    const sugEl    = document.getElementById('sal-sugerencias');
+    const stockEl  = document.getElementById('sal-stock-badge');
+    const codWrap  = document.getElementById('sal-codigo-interno');
+    const codVal   = document.getElementById('sal-codigo-val');
+    const identEl  = document.getElementById('sal-identificador');
+    const lblEl    = document.getElementById('lbl-identificador');
+    const badgeEl  = document.getElementById('sal-tipo-badge');
+
+    if (buscarEl) buscarEl.value = item.nombre || item.articulo || '';
+    if (sugEl)    sugEl.classList.add('hidden');
+
+    // Mostrar stock disponible
+    if (stockEl) {
+        const esSeriado = !item.tipo_material || item.tipo_material === 'seriado';
+        stockEl.textContent = esSeriado ? '1 unidad' : `Stock: ${item.cantidad||0}`;
+        stockEl.style.display = 'inline-block';
+        stockEl.style.background = (item.estado||'') === 'disponible'
+            ? 'rgba(0,230,118,.15)' : 'rgba(255,77,109,.15)';
+        stockEl.style.color = (item.estado||'') === 'disponible' ? '#00e676' : '#ff4d6d';
+        stockEl.style.border = (item.estado||'') === 'disponible'
+            ? '1px solid rgba(0,230,118,.3)' : '1px solid rgba(255,77,109,.3)';
+    }
+
+    // Mostrar código interno
+    if (codWrap && codVal && item.codigo) {
+        codVal.textContent = item.codigo;
+        codWrap.classList.remove('hidden');
+    } else if (codWrap) {
+        codWrap.classList.add('hidden');
+    }
+
+    // Adaptar campo identificador según tipo
+    const esSeriado = !item.tipo_material || item.tipo_material === 'seriado';
+    if (esSeriado) {
+        if (lblEl)    lblEl.textContent = 'NÚMERO DE SERIE / ESCÁNER';
+        if (badgeEl)  { badgeEl.textContent = 'SERIADO'; badgeEl.className = 'tipo-badge tipo-seriado'; }
+        if (identEl)  { identEl.type = 'text'; identEl.placeholder = 'Escanea o escribe la serie…'; identEl.value = item.serie||''; }
+    } else {
+        if (lblEl)    lblEl.textContent = 'CANTIDAD A RETIRAR';
+        if (badgeEl)  { badgeEl.textContent = 'MISCELÁNEOS'; badgeEl.className = 'tipo-badge tipo-cantidad'; }
+        if (identEl)  { identEl.type = 'number'; identEl.placeholder = '1'; identEl.value = '1'; identEl.min = 1; identEl.max = item.cantidad||999; }
+    }
+    if (identEl) identEl.focus();
+}
+
+function navSugerencias(e) {
+    const items = document.querySelectorAll('.sal-sug-item');
+    if (!items.length) return;
+    if (e.key === 'Escape') { document.getElementById('sal-sugerencias')?.classList.add('hidden'); }
+}
+
+function autoFillCuadrilla(sel) {
     const opt = sel.options[sel.selectedIndex];
-    const sf  = document.getElementById('sal-serie');
-    const mf  = document.getElementById('sal-modelo');
-    if (sf) sf.value = opt.getAttribute('data-serie') || '';
-    if (mf) mf.value = opt.getAttribute('data-modelo') || '';
+    const cuad = opt.getAttribute('data-cuadrilla') || '';
+    const cuadEl = document.getElementById('sal-cuadrilla');
+    if (cuadEl) cuadEl.value = cuad || '(sin cuadrilla asignada)';
 }
 
+// ── Canvas de firma digital ───────────────────────────────
+function initFirmaCanvas() {
+    const canvas = document.getElementById('firma-canvas');
+    if (!canvas) return;
+    _firmaCanvas = canvas;
+    _firmaCtx    = canvas.getContext('2d');
+    _firmaCtx.strokeStyle = '#00c8f0';
+    _firmaCtx.lineWidth   = 2;
+    _firmaCtx.lineCap     = 'round';
+
+    const getPos = (e) => {
+        const r = canvas.getBoundingClientRect();
+        const src = e.touches ? e.touches[0] : e;
+        return { x: src.clientX - r.left, y: src.clientY - r.top };
+    };
+
+    canvas.addEventListener('mousedown',  (e) => { _firmaDibujando = true; const p = getPos(e); _firmaCtx.beginPath(); _firmaCtx.moveTo(p.x, p.y); });
+    canvas.addEventListener('mousemove',  (e) => { if (!_firmaDibujando) return; const p = getPos(e); _firmaCtx.lineTo(p.x, p.y); _firmaCtx.stroke(); });
+    canvas.addEventListener('mouseup',    () => { _firmaDibujando = false; });
+    canvas.addEventListener('touchstart', (e) => { e.preventDefault(); _firmaDibujando = true; const p = getPos(e); _firmaCtx.beginPath(); _firmaCtx.moveTo(p.x, p.y); }, { passive:false });
+    canvas.addEventListener('touchmove',  (e) => { e.preventDefault(); if (!_firmaDibujando) return; const p = getPos(e); _firmaCtx.lineTo(p.x, p.y); _firmaCtx.stroke(); }, { passive:false });
+    canvas.addEventListener('touchend',   () => { _firmaDibujando = false; });
+}
+
+function limpiarFirma() {
+    if (_firmaCtx && _firmaCanvas) {
+        _firmaCtx.clearRect(0, 0, _firmaCanvas.width, _firmaCanvas.height);
+    }
+}
+
+function obtenerFirmaBase64() {
+    if (!_firmaCanvas) return null;
+    // Verificar si hay algo dibujado
+    const data = _firmaCtx.getImageData(0, 0, _firmaCanvas.width, _firmaCanvas.height).data;
+    const hayFirma = data.some(v => v !== 0);
+    return hayFirma ? _firmaCanvas.toDataURL('image/png') : null;
+}
+
+// ── Guardar salida ────────────────────────────────────────
 async function guardarSalida(e) {
     e.preventDefault();
-    const bid = document.getElementById('sal-bodega-id').value;
+
+    const ot          = document.getElementById('sal-ot').value.trim();
+    const motivo      = document.getElementById('sal-motivo').value;
+    const tecnico     = document.getElementById('sal-tecnico').value;
+    const cuadrilla   = document.getElementById('sal-cuadrilla').value.trim() || null;
+    const destino     = document.getElementById('sal-destino').value.trim()   || null;
+    const notas       = document.getElementById('sal-notas').value.trim()     || null;
+    const estMat      = document.querySelector('input[name="estado_material"]:checked')?.value || 'nuevo';
+    const identificador = document.getElementById('sal-identificador').value.trim();
+    const firma       = obtenerFirmaBase64();
+
+    if (!ot)      { alert('El número de OT/Ticket es obligatorio.'); return; }
+    if (!tecnico) { alert('Selecciona el técnico responsable.'); return; }
+    if (!_articuloSeleccionado && !identificador) {
+        alert('Selecciona un artículo del buscador.'); return;
+    }
+
+    const esSeriado = !_articuloSeleccionado?.tipo_material ||
+                       _articuloSeleccionado?.tipo_material === 'seriado';
+
     const payload = {
-        bodega_id:    bid ? parseInt(bid) : null,
-        numero_serie: document.getElementById('sal-serie').value.trim(),
-        modelo:       document.getElementById('sal-modelo').value.trim(),
-        motivo:       document.getElementById('sal-motivo').value,
-        cantidad:     parseInt(document.getElementById('sal-cantidad').value)||1,
-        destino:      document.getElementById('sal-destino').value.trim()||null,
-        responsable:  document.getElementById('sal-resp').value.trim()||null,
-        notas:        document.getElementById('sal-notas').value.trim()||null
+        bodega_id:        _articuloSeleccionado?.id || null,
+        numero_serie:     esSeriado ? (identificador || _articuloSeleccionado?.serie || null) : null,
+        modelo:           _articuloSeleccionado?.nombre || _articuloSeleccionado?.articulo || identificador || null,
+        cantidad:         esSeriado ? 1 : (parseInt(identificador)||1),
+        motivo,
+        destino,
+        responsable:      tecnico,
+        cuadrilla:        cuadrilla,
+        numero_ot:        ot,
+        estado_material:  estMat,
+        firma_base64:     firma,
+        notas
     };
-    const { error } = await window.supabase.from('salidas').insert(payload);
-    if (error) { alert('Error: ' + error.message); return; }
+
+    const btn = document.getElementById('btn-guardar-sal');
+    if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
 
     // Actualizar estado del artículo en bodega si aplica
-    if (bid) {
-        const nuevoEstado = payload.motivo === 'venta' ? 'vendido' : payload.motivo === 'daño' ? 'dañado' : 'reservado';
-        await window.supabase.from('bodega').update({ estado: nuevoEstado }).eq('id', bid);
+    if (_articuloSeleccionado?.id) {
+        const nuevoEstado = motivo === 'venta' ? 'vendido'
+                          : motivo === 'daño'  ? 'dañado'
+                          : 'reservado';
+        await window.supabase.from('bodega')
+            .update({ estado: nuevoEstado })
+            .eq('id', _articuloSeleccionado.id);
         cacheInventario = [];
     }
+
+    const { error } = await window.supabase.from('salidas').insert(payload);
+
+    if (btn) { btn.disabled = false; btn.textContent = 'Registrar Salida'; }
+
+    if (error) { alert('Error al guardar: ' + error.message); return; }
+
+    _articuloSeleccionado = null;
     cerrarModal('modal-salida');
     cargarSalidas();
 }
 
-
-// ════════════════════════════════════════════════════════════
-//  MÓDULO: TRANSFERENCIA DE INVENTARIO
-// ════════════════════════════════════════════════════════════
 
 async function cargarTransferencias() {
     const content = document.getElementById('dashboard-content');
