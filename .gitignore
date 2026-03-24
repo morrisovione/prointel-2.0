@@ -1,5 +1,4 @@
 # Evitar subir credenciales accidentalmente
-supabase.js
 
 # Sistema operativo
 .DS_Store
