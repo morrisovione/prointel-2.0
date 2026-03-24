@@ -1926,3 +1926,60 @@ code.serie-code {
     color: var(--muted);
     pointer-events: none;
 }
+
+/* ═══════════════════════════════════════════════
+   MEMORIA HISTÓRICA + CUADRILLA INTELIGENTE
+═══════════════════════════════════════════════ */
+
+/* Indicador de estado del historial */
+.hist-status {
+    font-size: .75rem;
+    padding: .3rem .6rem;
+    border-radius: 4px;
+    margin-top: .3rem;
+    font-family: var(--font-mono);
+    animation: slideIn .2s ease;
+}
+.hist-buscando  { color: var(--dim);     background: rgba(255,255,255,.03); border: 1px solid var(--border); }
+.hist-ok        { color: var(--success); background: rgba(0,230,118,.07);   border: 1px solid rgba(0,230,118,.2); }
+.hist-sugerencia{ color: var(--cyan);    background: rgba(0,200,240,.07);   border: 1px solid var(--border-cyan); }
+.hist-nuevo     { color: var(--warning); background: rgba(255,179,0,.07);   border: 1px solid rgba(255,179,0,.2); }
+
+/* Badge "del historial" junto a la label de código */
+.hist-origin {
+    font-size: .68rem;
+    font-weight: 600;
+    color: var(--success);
+    background: rgba(0,230,118,.1);
+    border: 1px solid rgba(0,230,118,.25);
+    padding: .1rem .45rem;
+    border-radius: 3px;
+    margin-left: .3rem;
+    vertical-align: middle;
+}
+
+/* Selector de cuadrilla + input manual */
+.cuad-wrap {
+    display: flex;
+    gap: .5rem;
+    align-items: center;
+}
+.cuad-wrap select { flex: 1; }
+.cuad-wrap input  {
+    flex: 1;
+    background: rgba(255,255,255,.04);
+    border: 1.5px solid var(--border-cyan);
+    border-radius: 5px;
+    color: var(--white);
+    padding: .6rem .85rem;
+    font-family: var(--font-mono);
+    font-size: .9rem;
+    letter-spacing: .06em;
+    outline: none;
+    text-transform: uppercase;
+    transition: box-shadow .2s;
+}
+.cuad-wrap input:focus {
+    box-shadow: 0 0 0 3px rgba(0,200,240,.1);
+}
+.cuad-wrap input::placeholder { color: var(--muted); text-transform: none; }

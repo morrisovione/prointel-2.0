@@ -1583,19 +1583,27 @@ function abrirModalArticulo(id) {
                     <div class="form-grid">
                         <div class="field field-full">
                             <label>NOMBRE DEL ARTÍCULO *</label>
-                            <input type="text" id="art-nombre"
-                                placeholder="Ej: Módem Dual Band, Cable UTP Cat6…"
-                                value="${esc(item?.nombre || item?.articulo || '')}" required />
+                            <div style="position:relative">
+                                <input type="text" id="art-nombre"
+                                    placeholder="Ej: Módem Dual Band, Cable UTP Cat6…"
+                                    value="${esc(item?.nombre || item?.articulo || '')}"
+                                    required
+                                    oninput="buscarCodigoHistorico(this.value)"
+                                    autocomplete="off" />
+                                <div id="hist-status" class="hist-status hidden"></div>
+                            </div>
                         </div>
                         <div class="field">
                             <label>
                                 CÓDIGO / SKU
+                                <span id="art-codigo-origin" class="hist-origin hidden">📚 del historial</span>
                                 <button type="button" class="btn-autogen"
                                     onclick="generarCodigoAuto()">⚡ Auto</button>
                             </label>
                             <input type="text" id="art-codigo"
                                 placeholder="PRO-00001"
-                                value="${esc(item?.codigo || '')}" />
+                                value="${esc(item?.codigo || '')}"
+                                oninput="document.getElementById('art-codigo-origin')?.classList.add('hidden')" />
                         </div>
                         <!-- categoría viene del switch tipo_material arriba -->
                         <div class="field">
@@ -1607,6 +1615,30 @@ function abrirModalArticulo(id) {
                         <div class="field">
                             <label>ESTADO</label>
                             <select id="art-estado">${estadoOpts}</select>
+                        </div>
+                        <div class="field field-full">
+                            <label>CUADRILLA / ASIGNADO</label>
+                            <div class="cuad-wrap">
+                                <select id="art-cuadrilla-sel"
+                                    onchange="onCuadrillaChange(this)">
+                                    <option value="">— Sin asignar —</option>
+                                    <option value="PRI1" ${item?.cuadrilla==='PRI1'?'selected':''}>PRI1</option>
+                                    <option value="PRI2" ${item?.cuadrilla==='PRI2'?'selected':''}>PRI2</option>
+                                    <option value="PRI3" ${item?.cuadrilla==='PRI3'?'selected':''}>PRI3</option>
+                                    <option value="PRI4" ${item?.cuadrilla==='PRI4'?'selected':''}>PRI4</option>
+                                    ${/* opciones dinámicas de la sesión */
+                                      '_cuadrillasExtra' in window
+                                        ? window._cuadrillasExtra.map(q => `<option value="${q}" ${item?.cuadrilla===q?'selected':''}>${q}</option>`).join('')
+                                        : ''}
+                                    <option value="__manual__">✏ Otro / Manual…</option>
+                                </select>
+                                <input type="text" id="art-cuadrilla-manual"
+                                    placeholder="Ej: EXT1, TEMP1…"
+                                    value="${item?.cuadrilla && !['PRI1','PRI2','PRI3','PRI4',''].includes(item.cuadrilla) ? esc(item.cuadrilla) : ''}"
+                                    class="${item?.cuadrilla && !['PRI1','PRI2','PRI3','PRI4',''].includes(item.cuadrilla) ? '' : 'hidden'}"
+                                    oninput="this.value=this.value.toUpperCase()"
+                                    style="text-transform:uppercase" />
+                            </div>
                         </div>
                     </div>
 
@@ -1693,6 +1725,122 @@ function onTipoMaterialChange(radio) {
     });
     if (esSeriado) setTimeout(() => document.getElementById('art-scanner')?.focus(), 50);
     else setTimeout(() => document.getElementById('art-cantidad')?.focus(), 50);
+}
+
+// ── Variables de sesión para cuadrillas extra ────────────
+if (!window._cuadrillasExtra) window._cuadrillasExtra = [];
+
+// ── Memoria histórica de códigos ─────────────────────────
+let _histTimer = null;
+
+/**
+ * Al escribir el nombre del artículo, busca en bodega el último
+ * código usado para ese nombre exacto y auto-rellena el campo.
+ */
+async function buscarCodigoHistorico(nombre) {
+    clearTimeout(_histTimer);
+    const codigoEl  = document.getElementById('art-codigo');
+    const statusEl  = document.getElementById('hist-status');
+    const originEl  = document.getElementById('art-codigo-origin');
+
+    if (!nombre || nombre.length < 3) {
+        if (statusEl) statusEl.classList.add('hidden');
+        return;
+    }
+
+    _histTimer = setTimeout(async () => {
+        if (statusEl) {
+            statusEl.textContent = '🔍 Buscando en historial…';
+            statusEl.className   = 'hist-status hist-buscando';
+        }
+
+        // Buscar en caché local primero (más rápido)
+        const enCache = cacheInventario.find(i =>
+            (i.nombre||'').toLowerCase() === nombre.toLowerCase() && i.codigo
+        );
+
+        if (enCache) {
+            _aplicarCodigoHistorico(enCache.codigo, codigoEl, statusEl, originEl, 'caché');
+            return;
+        }
+
+        // Si no está en caché, consultar Supabase
+        const { data } = await window.supabase
+            .from('bodega')
+            .select('codigo')
+            .ilike('nombre', nombre)
+            .not('codigo', 'is', null)
+            .order('fecha_ingreso', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        if (data?.codigo) {
+            _aplicarCodigoHistorico(data.codigo, codigoEl, statusEl, originEl, 'BD');
+        } else {
+            if (statusEl) {
+                statusEl.textContent = '✨ Artículo nuevo — ingresa el código manualmente';
+                statusEl.className   = 'hist-status hist-nuevo';
+            }
+            if (originEl) originEl.classList.add('hidden');
+        }
+    }, 400);
+}
+
+function _aplicarCodigoHistorico(codigo, codigoEl, statusEl, originEl, fuente) {
+    if (codigoEl && !codigoEl.value) {
+        // Solo auto-rellena si el campo está vacío
+        codigoEl.value = codigo;
+        if (originEl) originEl.classList.remove('hidden');
+        if (statusEl) {
+            statusEl.textContent = `✓ Código "${codigo}" recuperado del historial (${fuente})`;
+            statusEl.className   = 'hist-status hist-ok';
+        }
+    } else {
+        // Campo ya tiene valor — solo informar
+        if (statusEl) {
+            statusEl.textContent = `💡 Historial sugiere: ${codigo}`;
+            statusEl.className   = 'hist-status hist-sugerencia';
+        }
+    }
+    setTimeout(() => {
+        const s = document.getElementById('hist-status');
+        if (s) s.classList.add('hidden');
+    }, 4000);
+}
+
+// ── Lógica de cuadrilla inteligente ──────────────────────
+const CUADRILLAS_FIJAS = ['PRI1','PRI2','PRI3','PRI4'];
+
+function onCuadrillaChange(sel) {
+    const manualEl = document.getElementById('art-cuadrilla-manual');
+    if (!manualEl) return;
+
+    if (sel.value === '__manual__') {
+        manualEl.classList.remove('hidden');
+        manualEl.focus();
+    } else {
+        manualEl.classList.add('hidden');
+        manualEl.value = '';
+    }
+}
+
+/**
+ * Si el usuario ingresa una cuadrilla manual, pregunta si la quiere
+ * guardar para el resto de la sesión.
+ */
+function guardarCuadrillaManualSiAplica(cuadrilla) {
+    if (!cuadrilla) return;
+    if (CUADRILLAS_FIJAS.includes(cuadrilla)) return;
+    if (window._cuadrillasExtra.includes(cuadrilla)) return;
+
+    const guardar = confirm(
+        `La cuadrilla "${cuadrilla}" no está en la lista predefinida.
+` +
+        `¿Deseas agregarla a la lista para el resto de esta sesión?`
+    );
+    if (guardar) {
+        window._cuadrillasExtra.push(cuadrilla);
+    }
 }
 
 // ── Generador de código automático ───────────────────────
@@ -1816,10 +1964,13 @@ async function guardarArticulo(e, id) {
     const btn = document.getElementById('btn-guardar-art');
     if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
 
+    // Leer cuadrilla — prioriza manual sobre select
+    const cuadSel    = document.getElementById('art-cuadrilla-sel')?.value || '';
+    const cuadManual = (document.getElementById('art-cuadrilla-manual')?.value || '').trim().toUpperCase();
+    const cuadrilla  = cuadSel === '__manual__' ? (cuadManual || null)
+                     : cuadSel || null;
+
     // Payload base — solo columnas que existen en bodega
-    // Columnas reales: id, serie, articulo, estado, fecha_ingreso,
-    //                  cuadrilla, ubicacion, cantidad, updated_at,
-    //                  nombre, codigo, precio, tipo_material, unidad, notas
     const payloadBase = {
         nombre,
         articulo: nombre,
@@ -1827,6 +1978,7 @@ async function guardarArticulo(e, id) {
         precio,
         estado,
         notas,
+        cuadrilla,
         tipo_material: tipo
     };
 
@@ -1858,6 +2010,9 @@ async function guardarArticulo(e, id) {
                 : await window.supabase.from('bodega').insert(payload);
             if (error) throw error;
         }
+
+        // Guardar cuadrilla manual en memoria de sesión si aplica
+        if (cuadrilla) guardarCuadrillaManualSiAplica(cuadrilla);
 
         cerrarModal('modal-articulo');
         cacheInventario = [];
