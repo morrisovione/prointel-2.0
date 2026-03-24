@@ -40,7 +40,8 @@ input  { font-family: inherit; }
 
 /* ── Utilidades ─────────────────────────────── */
 .hidden { display: none !important; }
-.view   { min-height: 100vh; position: relative; }
+.view   { display: none; min-height: 100vh; position: relative; }
+#view-landing { display: block; } /* Landing visible por defecto hasta que JS tome control */
 
 /* ═══════════════════════════════════════════════
    FONDO ANIMADO
@@ -508,9 +509,15 @@ input  { font-family: inherit; }
    DASHBOARD
 ═══════════════════════════════════════════════ */
 #view-dashboard {
-    display: grid !important;
+    display: grid;
     grid-template-columns: 240px 1fr;
     min-height: 100vh;
+}
+/* Cuando hidden está presente, forzar ocultamiento sin importar el display base */
+#view-dashboard.hidden,
+#view-login.hidden,
+#view-landing.hidden {
+    display: none !important;
 }
 
 /* ── Sidebar ────────────────────────────────── */
@@ -833,7 +840,7 @@ input  { font-family: inherit; }
     .bg-ghost-text { font-size: 5rem; opacity: 0.5; }
     .landing-nav { padding: 1rem 1.5rem; }
     .landing-footer { padding: 0.6rem 1.5rem; }
-    #view-dashboard { grid-template-columns: 1fr; }
+    #view-dashboard:not(.hidden) { grid-template-columns: 1fr; }
     .sidebar { display: none; }
 }
 
