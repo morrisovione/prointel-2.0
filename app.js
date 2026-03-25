@@ -3168,93 +3168,156 @@ async function guardarSalida(e) {
     const destino     = document.getElementById('sal-destino').value.trim()   || null;
     const notas       = document.getElementById('sal-notas').value.trim()     || null;
     const estMat      = document.querySelector('input[name="estado_material"]:checked')?.value || 'nuevo';
-    const identificador = document.getElementById('sal-identificador').value.trim();
-    const firma       = obtenerFirmaBase64();
+    const identificador = document.getElementById('sal-identificador')?.value.trim() || '';
 
+    // Validaciones — antes de deshabilitar el botón
     if (!ot)      { alert('El número de OT/Ticket es obligatorio.'); return; }
     if (!tecnico) { alert('Selecciona el técnico responsable.'); return; }
     if (!_articuloSeleccionado && !identificador) {
         alert('Selecciona un artículo del buscador.'); return;
     }
 
+    const btn = document.getElementById('btn-guardar-sal');
+    const btnTextoOriginal = btn?.textContent || 'Registrar Salida';
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Guardando…'; }
+
+    // Firma — convertir canvas a base64 de forma segura
+    // Si la imagen es muy grande, Supabase puede rechazarla — la comprimimos
+    let firma = null;
+    try {
+        const canvas = document.getElementById('firma-canvas');
+        if (canvas) {
+            // Verificar si hay algo dibujado
+            const ctx    = canvas.getContext('2d');
+            const pixeles = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+            const hayFirma = Array.from(pixeles).some(v => v !== 0);
+            if (hayFirma) {
+                // Comprimir a JPEG calidad 0.7 para reducir tamaño
+                firma = canvas.toDataURL('image/jpeg', 0.7);
+            }
+        }
+    } catch (firmaErr) {
+        console.warn('PROINTEL — No se pudo leer la firma:', firmaErr.message);
+        firma = null; // Continuar sin firma si falla
+    }
+
     const esSeriado = !_articuloSeleccionado?.tipo_material ||
                        _articuloSeleccionado?.tipo_material === 'seriado';
 
+    const serieArticulo = esSeriado
+        ? (identificador || _articuloSeleccionado?.serie || null)
+        : null;
+
+    // Payload para tabla 'salidas'
+    // Incluye campos alternativos para compatibilidad con distintos nombres de columna
     const payload = {
-        bodega_id:        _articuloSeleccionado?.id || null,
-        numero_serie:     esSeriado ? (identificador || _articuloSeleccionado?.serie || null) : null,
-        modelo:           _articuloSeleccionado?.nombre || _articuloSeleccionado?.articulo || identificador || null,
-        cantidad:         esSeriado ? 1 : (parseInt(identificador)||1),
+        // Nombres principales (PROINTEL)
+        numero_ot:       ot,
+        modelo:          _articuloSeleccionado?.nombre || _articuloSeleccionado?.articulo || identificador || null,
+        numero_serie:    serieArticulo,
+        cantidad:        esSeriado ? 1 : (parseInt(identificador)||1),
         motivo,
         destino,
-        responsable:      tecnico,
-        cuadrilla:        cuadrilla,
-        numero_ot:        ot,
-        estado_material:  estMat,
-        firma_base64:     firma,
-        notas
+        responsable:     tecnico,
+        cuadrilla,
+        estado_material: estMat,
+        firma_base64:    firma,
+        notas,
+        bodega_id:       _articuloSeleccionado?.id || null,
     };
 
-    const btn = document.getElementById('btn-guardar-sal');
-    if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
+    try {
+        // ── Paso 1: Resolver cuadrilla del técnico ────────────
+        let cuadrillaFinal = cuadrilla;
+        let usuarioTecnico = tecnico;
 
-    // Actualizar estado y asignación del artículo en bodega
-    if (_articuloSeleccionado?.id) {
-        // Estado según motivo — nomenclatura consistente con el inventario
-        const nuevoEstado = motivo === 'venta'       ? 'vendido'
-                          : motivo === 'daño'        ? 'dañado'
-                          : motivo === 'instalación' ? 'entregado'
-                          : motivo === 'traslado'    ? 'entregado'
-                          : 'reservado';
+        if (['instalación','traslado','préstamo'].includes(motivo)) {
+            try {
+                const { data: tData } = await window.supabase
+                    .from('usuarios')
+                    .select('usuario, cuadrilla')
+                    .or(`nombre_completo.eq.${tecnico},usuario.eq.${tecnico}`)
+                    .maybeSingle();
 
-        // Resolver el usuario del técnico para asignación
-        const tecnicoUsuario = (tecnicos||[]).find
-            ? null   // no tenemos la lista aquí, usamos el nombre
-            : null;
-
-        const updateData = { estado: nuevoEstado };
-
-        // Despacho a técnico — actualizar cuadrilla y asignación en bodega
-        // La cuadrilla es la clave principal para que aparezca en "Mi Bodega"
-        if (['instalación','traslado','préstamo'].includes(motivo) && tecnico) {
-            const { data: tData } = await window.supabase
-                .from('usuarios')
-                .select('usuario, cuadrilla')
-                .or(`nombre_completo.eq.${tecnico},usuario.eq.${tecnico}`)
-                .maybeSingle();
-
-            if (tData?.cuadrilla) {
-                // Tiene cuadrilla — es el campo principal de filtrado
-                updateData.cuadrilla    = tData.cuadrilla;
-                updateData.asignado_a   = tData.usuario || tecnico;
-                updateData.responsable  = tData.usuario || tecnico;
-            } else if (cuadrilla) {
-                // Cuadrilla viene del formulario de salida
-                updateData.cuadrilla    = cuadrilla;
-                updateData.asignado_a   = tecnico;
-                updateData.responsable  = tecnico;
-            } else {
-                // Fallback sin cuadrilla — solo asignado_a
-                updateData.asignado_a   = tecnico;
-                updateData.responsable  = tecnico;
+                if (tData) {
+                    if (tData.cuadrilla) cuadrillaFinal = tData.cuadrilla;
+                    if (tData.usuario)   usuarioTecnico = tData.usuario;
+                }
+            } catch (lookupErr) {
+                console.warn('PROINTEL — No se pudo resolver cuadrilla:', lookupErr.message);
+                // Continuar con los valores del formulario
             }
         }
 
-        await window.supabase.from('bodega')
-            .update(updateData)
-            .eq('id', _articuloSeleccionado.id);
-        cacheInventario = [];
+        // ── Paso 2: Insertar registro de salida ───────────────
+        const { data: salidaData, error: errSalida } = await window.supabase
+            .from('salidas')
+            .insert(payload)
+            .select('id')
+            .maybeSingle();
+
+        if (errSalida) {
+            // Mostrar error específico de Supabase con código Postgres si existe
+            const codPG  = errSalida.code  ? ` [${errSalida.code}]`  : '';
+            const detalle = errSalida.details ? `
+Detalle: ${errSalida.details}` : '';
+            throw new Error(`Error al insertar salida${codPG}: ${errSalida.message}${detalle}`);
+        }
+
+        // ── Paso 3: Actualizar estado del artículo en bodega ──
+        if (_articuloSeleccionado?.id) {
+            const nuevoEstado = motivo === 'venta'       ? 'vendido'
+                              : motivo === 'daño'        ? 'dañado'
+                              : motivo === 'instalación' ? 'entregado'
+                              : motivo === 'traslado'    ? 'entregado'
+                              : 'reservado';
+
+            const updateBodega = {
+                estado:      nuevoEstado,
+                cuadrilla:   cuadrillaFinal,
+                asignado_a:  usuarioTecnico,
+                responsable: usuarioTecnico,
+            };
+
+            const { error: errBodega } = await window.supabase
+                .from('bodega')
+                .update(updateBodega)
+                .eq('id', _articuloSeleccionado.id);
+
+            if (errBodega) {
+                // No bloquear el flujo — la salida ya se insertó
+                // Solo notificar en consola
+                console.warn('PROINTEL — Salida guardada pero bodega no actualizada:', errBodega.message);
+            }
+
+            // Si hay serie, también actualizar por serie (doble seguridad)
+            if (serieArticulo) {
+                await window.supabase
+                    .from('bodega')
+                    .update({ estado: nuevoEstado, cuadrilla: cuadrillaFinal, asignado_a: usuarioTecnico })
+                    .eq('serie', serieArticulo)
+                    .neq('estado', 'vendido'); // No sobreescribir vendidos
+            }
+
+            cacheInventario = [];
+        }
+
+        // ── Éxito ─────────────────────────────────────────────
+        _articuloSeleccionado = null;
+        cerrarModal('modal-salida');
+        cargarSalidas();
+
+    } catch (err) {
+        // Mostrar error detallado al usuario
+        alert('❌ Error al registrar la salida:\n\n' + err.message);
+        console.error('PROINTEL — guardarSalida error:', err);
+    } finally {
+        // El botón SIEMPRE vuelve a su estado original — sin importar qué pasó
+        if (btn) {
+            btn.disabled  = false;
+            btn.textContent = btnTextoOriginal;
+        }
     }
-
-    const { error } = await window.supabase.from('salidas').insert(payload);
-
-    if (btn) { btn.disabled = false; btn.textContent = 'Registrar Salida'; }
-
-    if (error) { alert('Error al guardar: ' + error.message); return; }
-
-    _articuloSeleccionado = null;
-    cerrarModal('modal-salida');
-    cargarSalidas();
 }
 
 
