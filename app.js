@@ -298,12 +298,15 @@ function logout() {
     if (userEl)   userEl.textContent   = 'Usuario';
     if (avatarEl) avatarEl.textContent = 'U';
 
-    // Limpiar estado de la app
-    currentUser     = null;
-    cacheInventario = [];
-    cacheFacturas   = [];
-    cacheSalidas    = [];
-    window._misBodegaItems = null;
+    // Limpiar todo el estado de la app
+    currentUser         = null;
+    cacheInventario     = [];
+    cacheFacturas       = [];
+    cacheSalidas        = [];
+    cacheUsuarios       = [];
+    cacheTransferencias = [];
+    window._misBodegaItems    = null;
+    window._articuloSeleccionado = null;
 
     // Limpiar sesión persistida
     localStorage.removeItem('prointel_session');
@@ -547,7 +550,7 @@ function renderFacturas(filas) {
             <td class="td-date">${formatFecha(f.created_at)}</td>
             <td>
                 <div class="action-row">
-                    <button class="act-btn act-edit" onclick="verFactura('${f.id}')">👁 Ver</button>
+                    <button class="act-btn act-edit" onclick="verFactura('${f.id}')" title="Ver documento">🖨 Ver PDF</button>
                     ${f.estado !== 'anulada'
                         ? `<button class="act-btn act-edit" onclick="cambiarEstadoFactura('${f.id}','${f.estado||'emitida'}')">✎</button>
                            <button class="act-btn act-del" onclick="anularFactura('${f.id}','${esc(f.numero_factura||'')}')">✕</button>`
@@ -616,9 +619,18 @@ async function abrirModalFactura(id) {
                 <form id="form-factura" onsubmit="guardarFactura(event,'${id||''}')">
                     <div class="form-grid">
                         <div class="field">
-                            <label>Nº FACTURA *</label>
+                            <label>Nº FACTURA
+                                <span style="font-size:.68rem;color:var(--cyan);
+                                    background:rgba(0,200,240,.08);border:1px solid var(--border-cyan);
+                                    padding:.1rem .4rem;border-radius:3px;margin-left:.3rem">
+                                    ⚡ Auto-generado
+                                </span>
+                            </label>
                             <input type="text" id="fact-numero"
-                                value="${esc(f?.numero_factura || numSugerido)}" required />
+                                value="${esc(f?.numero_factura || numSugerido)}"
+                                readonly
+                                style="opacity:.7;cursor:not-allowed;font-family:var(--font-mono);
+                                       letter-spacing:.06em;font-weight:700" />
                         </div>
                         <div class="field">
                             <label>ESTADO</label>
@@ -918,23 +930,237 @@ function verFactura(id) {
 }
 
 function imprimirFactura(id) {
-    const recibo = document.querySelector('#modal-ver-factura .fact-recibo');
-    if (!recibo) return;
-    const win = window.open('','_blank','width=800,height=600');
-    win.document.write(`<!DOCTYPE html><html><head><title>Factura PROINTEL</title>
-        <style>
-            body { font-family: 'Segoe UI', sans-serif; padding: 2rem; color: #111; }
-            .fact-rec-brand { font-size:1.4rem; font-weight:800; }
-            .fact-rec-num   { font-size:1.1rem; font-weight:700; }
-            table { width:100%; border-collapse:collapse; margin:1rem 0; }
-            th    { background:#f4f4f4; padding:8px 12px; text-align:left; border-bottom:2px solid #ccc; }
-            td    { padding:8px 12px; border-bottom:1px solid #eee; }
-            .fact-rec-header  { display:flex; justify-content:space-between; margin-bottom:1.5rem; }
-            .fact-rec-totales { text-align:right; margin-top:.8rem; }
-            .fact-rec-grand   { font-weight:800; font-size:1.1rem; border-top:2px solid #333; padding-top:.4rem; }
-        </style></head><body>${recibo.outerHTML}
-        <script>window.onload=()=>{window.print();window.close();}<\/script>
-        </body></html>`);
+    const f = cacheFacturas.find(x => x.id === id);
+    if (!f) return;
+    let lineas = [];
+    try { lineas = JSON.parse(f.lineas||'[]'); } catch {}
+
+    const lineasHTML = lineas.length
+        ? lineas.map(l => `
+            <tr>
+                <td>${esc(l.descripcion||'—')}</td>
+                <td style="text-align:center">${l.cantidad||1}</td>
+                <td style="text-align:right">$${parseFloat(l.precio_unit||0).toFixed(2)}</td>
+                <td style="text-align:right"><strong>$${parseFloat(l.subtotal||0).toFixed(2)}</strong></td>
+            </tr>`).join('')
+        : '<tr><td colspan="4" style="text-align:center;color:#999;padding:1rem">Sin líneas de detalle</td></tr>';
+
+    const win = window.open('','_blank','width=820,height=700');
+    win.document.write(`<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Factura ${esc(f.numero_factura||f.id.slice(0,8).toUpperCase())} — PROINTEL</title>
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: #fff;
+            color: #111;
+            padding: 2.5rem;
+            max-width: 780px;
+            margin: 0 auto;
+        }
+        /* ── Header ── */
+        .doc-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            padding-bottom: 1.2rem;
+            border-bottom: 3px solid #00c8f0;
+            margin-bottom: 1.5rem;
+        }
+        .doc-brand-logo {
+            font-size: 2rem;
+            font-weight: 900;
+            letter-spacing: -.01em;
+            color: #0d1520;
+        }
+        .doc-brand-logo span { color: #00c8f0; }
+        .doc-brand-sub { font-size: .75rem; color: #636e72; margin-top: .2rem; }
+        .doc-num-wrap  { text-align: right; }
+        .doc-num       { font-size: 1.3rem; font-weight: 800; color: #0d1520;
+                         font-family: 'Courier New', monospace; }
+        .doc-fecha     { font-size: .78rem; color: #636e72; margin-top: .2rem; }
+        .doc-estado    {
+            display: inline-block;
+            margin-top: .4rem;
+            padding: .2rem .7rem;
+            border-radius: 20px;
+            font-size: .72rem;
+            font-weight: 700;
+            letter-spacing: .06em;
+            text-transform: uppercase;
+            background: ${f.estado==='pagada'?'#e8f8ef':'#fff8e7'};
+            color: ${f.estado==='pagada'?'#00a854':'#e67e22'};
+            border: 1px solid ${f.estado==='pagada'?'#b7ebcc':'#f8d8a0'};
+        }
+        /* ── Cliente ── */
+        .doc-client {
+            background: #f8fafb;
+            border-left: 4px solid #00c8f0;
+            border-radius: 0 6px 6px 0;
+            padding: .9rem 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .doc-client-label { font-size: .65rem; font-weight: 700;
+                            letter-spacing: .12em; color: #636e72;
+                            text-transform: uppercase; margin-bottom: .3rem; }
+        .doc-client-name  { font-size: 1rem; font-weight: 700; color: #0d1520; }
+        .doc-client-nit   { font-size: .82rem; color: #555;
+                            font-family: 'Courier New', monospace; margin-top: .2rem; }
+        .doc-client-dir   { font-size: .78rem; color: #636e72; margin-top: .15rem; }
+        /* ── Tabla detalle ── */
+        .doc-table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
+        .doc-table thead tr {
+            background: #0d1520;
+            color: #fff;
+        }
+        .doc-table th {
+            padding: .6rem .9rem;
+            font-size: .78rem;
+            font-weight: 600;
+            letter-spacing: .04em;
+            text-align: left;
+        }
+        .doc-table td {
+            padding: .6rem .9rem;
+            font-size: .85rem;
+            border-bottom: 1px solid #edf2f0;
+            color: #2d3436;
+        }
+        .doc-table tbody tr:nth-child(even) { background: #f8fafb; }
+        /* ── Totales ── */
+        .doc-totals {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: .5rem;
+        }
+        .doc-totals-box {
+            min-width: 240px;
+            border-top: 2px solid #edf2f0;
+            padding-top: .6rem;
+        }
+        .doc-total-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: .85rem;
+            color: #636e72;
+            padding: .2rem 0;
+        }
+        .doc-total-grand {
+            display: flex;
+            justify-content: space-between;
+            font-size: 1.1rem;
+            font-weight: 800;
+            color: #0d1520;
+            border-top: 2px solid #0d1520;
+            padding-top: .5rem;
+            margin-top: .3rem;
+        }
+        /* ── Notas ── */
+        .doc-notas {
+            font-size: .78rem;
+            color: #636e72;
+            margin-top: 1.2rem;
+            padding: .7rem .9rem;
+            background: #f8fafb;
+            border-radius: 5px;
+            border-left: 3px solid #dfe6e9;
+        }
+        /* ── Footer ── */
+        .doc-footer {
+            margin-top: 2rem;
+            padding-top: 1rem;
+            border-top: 1px solid #edf2f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: .72rem;
+            color: #b2bec3;
+        }
+        /* ── Print ── */
+        .print-btn {
+            display: block;
+            margin: 1.5rem auto 0;
+            padding: .7rem 2rem;
+            background: #00c8f0;
+            color: #000;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        @media print {
+            .print-btn { display: none; }
+            body { padding: 1rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="doc-header">
+        <div>
+            <div class="doc-brand-logo">PRO<span>INTEL</span></div>
+            <div class="doc-brand-sub">Sistema de Gestión Residencial</div>
+        </div>
+        <div class="doc-num-wrap">
+            <div class="doc-num">${esc(f.numero_factura||f.id.slice(0,8).toUpperCase())}</div>
+            <div class="doc-fecha">${new Date(f.created_at||Date.now()).toLocaleDateString('es-SV',{
+                weekday:'long', day:'2-digit', month:'long', year:'numeric'
+            })}</div>
+            <span class="doc-estado">${esc(f.estado||'emitida')}</span>
+        </div>
+    </div>
+
+    <div class="doc-client">
+        <div class="doc-client-label">Facturar a</div>
+        <div class="doc-client-name">${esc(f.cliente||'—')}</div>
+        ${f.nit      ? `<div class="doc-client-nit">NIT / DUI: ${esc(f.nit)}</div>`       : ''}
+        ${f.direccion? `<div class="doc-client-dir">${esc(f.direccion)}</div>`             : ''}
+    </div>
+
+    <table class="doc-table">
+        <thead>
+            <tr>
+                <th>Descripción</th>
+                <th style="text-align:center;width:70px">Cant.</th>
+                <th style="text-align:right;width:100px">P. Unit.</th>
+                <th style="text-align:right;width:110px">Subtotal</th>
+            </tr>
+        </thead>
+        <tbody>${lineasHTML}</tbody>
+    </table>
+
+    <div class="doc-totals">
+        <div class="doc-totals-box">
+            <div class="doc-total-row">
+                <span>Subtotal</span>
+                <span>$${parseFloat(f.subtotal||f.total||0).toFixed(2)}</span>
+            </div>
+            ${f.descuento > 0 ? `<div class="doc-total-row">
+                <span>Descuento</span>
+                <span>− $${parseFloat(f.descuento).toFixed(2)}</span>
+            </div>` : ''}
+            <div class="doc-total-grand">
+                <span>TOTAL</span>
+                <span>$${parseFloat(f.total||0).toFixed(2)}</span>
+            </div>
+        </div>
+    </div>
+
+    ${f.notas ? `<div class="doc-notas"><strong>Notas:</strong> ${esc(f.notas)}</div>` : ''}
+
+    <div class="doc-footer">
+        <span>PROINTEL 2.0 — Sistema de Gestión Residencial</span>
+        <span>Impreso el ${new Date().toLocaleDateString('es-SV')}</span>
+    </div>
+
+    <button class="print-btn" onclick="window.print()">🖨 Imprimir / Guardar PDF</button>
+
+</body>
+</html>`);
     win.document.close();
 }
 
@@ -1428,6 +1654,7 @@ async function cargarInventarioBodega() {
             <div class="header-actions">
                 <button class="btn-nav" onclick="cargarInventarioBodega()">↺</button>
                 <button class="btn-outline-sm" onclick="exportarInventarioCSV()">⬇ Exportar</button>
+                <button class="btn-outline-sm" onclick="verMaterialEnCampo()">🚛 Material en Campo</button>
                 <button class="btn-outline-sm" onclick="changeTab('importar')">📤 Importar Excel</button>
                 <button class="btn-cyan" onclick="abrirModalArticulo()">+ Nuevo Artículo</button>
             </div>
@@ -1488,9 +1715,13 @@ async function cargarInventarioBodega() {
         <p class="table-count" id="bodega-count"></p>`;
 
     try {
+        // Admin ve solo stock central (sin cuadrilla asignada a técnico)
+        // Artículos con cuadrilla van a "Material en Campo"
         const { data, error } = await window.supabase
             .from('bodega')
             .select('*')
+            .is('asignado_a', null)
+            .not('estado', 'eq', 'vendido')
             .order('created_at', { ascending: false });
         if (error) throw error;
 
@@ -2119,6 +2350,88 @@ async function guardarArticulo(e, id) {
     }
 }
 
+// ── Material en Campo ────────────────────────────────────
+async function verMaterialEnCampo() {
+    const content = document.getElementById('dashboard-content');
+    content.innerHTML = `
+        <div class="module-header">
+            <h2>🚛 Material en Campo</h2>
+            <div class="header-actions">
+                <button class="btn-nav" onclick="verMaterialEnCampo()">↺</button>
+                <button class="btn-outline-sm" onclick="cargarInventarioBodega()">← Bodega Central</button>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="data-table" id="tabla-campo">
+                <thead><tr>
+                    <th>#</th><th>ARTÍCULO</th><th>CÓDIGO</th>
+                    <th>SERIE</th><th>TÉCNICO / CUADRILLA</th><th>ESTADO</th><th>ACCIONES</th>
+                </tr></thead>
+                <tbody id="campo-tbody">
+                    <tr><td colspan="7" class="empty-row">⏳ Cargando…</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="table-count" id="campo-count"></p>`;
+
+    const { data, error } = await window.supabase
+        .from('bodega')
+        .select('*')
+        .not('asignado_a', 'is', null)
+        .not('estado', 'eq', 'vendido')
+        .order('fecha_ingreso', { ascending: false });
+
+    const tbody = document.getElementById('campo-tbody');
+    const count = document.getElementById('campo-count');
+
+    if (error) {
+        tbody.innerHTML = `<tr><td colspan="7" class="empty-row error-msg">❌ ${error.message}</td></tr>`;
+        return;
+    }
+
+    const items = data || [];
+    if (!items.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="empty-row">No hay material en campo actualmente.</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = items.map((item, idx) => `
+        <tr>
+            <td class="row-num">${idx+1}</td>
+            <td class="td-bold">${esc(item.nombre||item.articulo||'—')}</td>
+            <td><span class="sku-code">${esc(item.codigo||'—')}</span></td>
+            <td>${item.serie ? `<code class="serie-code">${esc(item.serie)}</code>` : '—'}</td>
+            <td>
+                <div style="line-height:1.4">
+                    <div style="font-weight:600;font-size:.85rem">${esc(item.asignado_a||item.responsable||'—')}</div>
+                    ${item.cuadrilla ? `<div class="td-date">${esc(item.cuadrilla)}</div>` : ''}
+                </div>
+            </td>
+            <td><span class="badge badge-${(item.estado||'reservado').toLowerCase()}">${esc(item.estado||'reservado')}</span></td>
+            <td>
+                <button class="act-btn act-edit" title="Devolver a bodega central"
+                    onclick="devolverABodega('${item.id}','${esc(item.nombre||item.articulo||'')}')">
+                    ↩ Devolver
+                </button>
+            </td>
+        </tr>`).join('');
+
+    if (count) count.textContent = `${items.length} artículo${items.length!==1?'s':''} en campo`;
+}
+
+async function devolverABodega(id, nombre) {
+    if (!confirm(`¿Devolver "${nombre}" a bodega central?`)) return;
+    const { error } = await window.supabase.from('bodega')
+        .update({
+            estado:     'disponible',
+            asignado_a: null,
+            responsable: null
+        })
+        .eq('id', id);
+    if (error) { alert('Error: ' + error.message); return; }
+    verMaterialEnCampo();
+}
+
 // ── Eliminar artículo ─────────────────────────────────────
 async function eliminarArticulo(id, nombre) {
     if (!confirm(`¿Eliminar "${nombre}"? Esta acción no se puede deshacer.`)) return;
@@ -2613,13 +2926,43 @@ async function guardarSalida(e) {
     const btn = document.getElementById('btn-guardar-sal');
     if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
 
-    // Actualizar estado del artículo en bodega si aplica
+    // Actualizar estado y asignación del artículo en bodega
     if (_articuloSeleccionado?.id) {
-        const nuevoEstado = motivo === 'venta' ? 'vendido'
-                          : motivo === 'daño'  ? 'dañado'
+        const nuevoEstado = motivo === 'venta'  ? 'vendido'
+                          : motivo === 'daño'   ? 'dañado'
+                          : motivo === 'instalación' ? 'en_uso'
                           : 'reservado';
+
+        // Resolver el usuario del técnico para asignación
+        const tecnicoUsuario = (tecnicos||[]).find
+            ? null   // no tenemos la lista aquí, usamos el nombre
+            : null;
+
+        const updateData = { estado: nuevoEstado };
+
+        // Si es despacho a técnico, asignar en bodega para que aparezca en "Mi Bodega"
+        if (['instalación','traslado','préstamo'].includes(motivo) && tecnico) {
+            // Buscar el usuario del técnico por nombre
+            const { data: tData } = await window.supabase
+                .from('usuarios')
+                .select('usuario, cuadrilla')
+                .or(`nombre_completo.eq.${tecnico},usuario.eq.${tecnico}`)
+                .maybeSingle();
+
+            if (tData) {
+                updateData.responsable  = tData.usuario;
+                updateData.asignado_a   = tData.usuario;
+                if (tData.cuadrilla) updateData.cuadrilla = tData.cuadrilla;
+            } else {
+                // Fallback: usar nombre directamente
+                updateData.responsable = tecnico;
+                updateData.asignado_a  = tecnico;
+                if (cuadrilla) updateData.cuadrilla = cuadrilla;
+            }
+        }
+
         await window.supabase.from('bodega')
-            .update({ estado: nuevoEstado })
+            .update(updateData)
             .eq('id', _articuloSeleccionado.id);
         cacheInventario = [];
     }
