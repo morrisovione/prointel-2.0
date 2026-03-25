@@ -29,7 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (userEl) userEl.textContent = nombre;
             showSection('view-dashboard');
             iniciarReloj();
-            aplicarPermisosTecnico();
+            verificarPermisos();
             changeTab('servicios');
             cargarDatosRecordados();
             return; // No mostrar landing si ya hay sesión
@@ -177,7 +177,7 @@ async function handleLogin(e) {
 
         showSection('view-dashboard');
         iniciarReloj();
-        aplicarPermisosTecnico(); // Restringe UI si el rol es Técnico
+        verificarPermisos(); // Control de acceso por rol
         changeTab('servicios');
 
     } catch (err) {
@@ -359,6 +359,12 @@ function changeTab(tab) {
     if (tab === 'transferencia') cargarTransferencias();
     if (tab === 'reportes')      cargarReportes();
     if (tab === 'usuarios')      cargarUsuarios();
+
+    // Re-aplicar permisos — respetar formularios activos del técnico
+    setTimeout(() => {
+        const hayForm = document.getElementById('form-instalacion-panel');
+        if (!hayForm) verificarPermisos();
+    }, 80);
 }
 
 // ── Módulo: Servicios ─────────────────────────
@@ -388,7 +394,7 @@ function cargarServicios() {
                 <div class="card-label">Facturación</div>
                 <div class="card-sub">Consultar facturas emitidas</div>
             </div>
-            <div class="summary-card" onclick="changeTab('usuarios')">
+            <div class="summary-card" id="card-usuarios" onclick="changeTab('usuarios')">
                 <div class="card-icon">👤</div>
                 <div class="card-label">Usuarios</div>
                 <div class="card-sub">Gestión de accesos</div>
@@ -3268,63 +3274,116 @@ function _descargarCSV(csv, nombre) {
 // ════════════════════════════════════════════════════════════
 
 /**
- * Aplica restricciones del perfil Técnico:
- * - Menú lateral filtrado (solo ve sus opciones)
- * - Botones de escritura ocultos en el contenido
- * - Solo ve su propio nombre de perfil
+ * verificarPermisos — punto único de control de acceso.
+ * Se llama tras login exitoso y al restaurar sesión.
+ * Oculta/muestra elementos según el rol del usuario.
  */
-function aplicarPermisosTecnico() {
-    if (!currentUser) return;
-    const rol = (currentUser.rol || '').toLowerCase();
 
-    // Marcar el body con el rol para que CSS actúe
+// ════════════════════════════════════════════════════════════
+//  PERMISOS POR ROL — Sistema único de control de acceso
+// ════════════════════════════════════════════════════════════
+
+/**
+ * verificarPermisos()
+ * Punto único de control. Se ejecuta:
+ *  - Al hacer login exitoso
+ *  - Al restaurar sesión del localStorage
+ *  - Después de cada changeTab (con guard de formulario activo)
+ */
+function verificarPermisos() {
+    if (!currentUser) return;
+    const rol       = (currentUser.rol || '').toLowerCase();
+    const esTecnico = rol === 'tecnico';
+
+    // Marcar body con el rol para que CSS actúe en cascada
     document.body.setAttribute('data-rol', rol);
 
-    if (rol === 'tecnico') {
-        // Ocultar menú de admin, mostrar menú de técnico
-        document.querySelectorAll('.menu-admin-only').forEach(el => el.style.display = 'none');
-        document.querySelectorAll('.menu-tecnico-only').forEach(el => el.style.display = 'flex');
-    } else {
-        // Admin/Bodega: mostrar todo, ocultar menú de técnico
-        document.querySelectorAll('.menu-admin-only').forEach(el => el.style.display = '');
-        document.querySelectorAll('.menu-tecnico-only').forEach(el => el.style.display = 'none');
+    // ── Menú lateral ──────────────────────────────────────
+    document.querySelectorAll('.menu-admin-only').forEach(el => {
+        el.style.display = esTecnico ? 'none' : '';
+    });
+    document.querySelectorAll('.menu-tecnico-only').forEach(el => {
+        el.style.display = esTecnico ? 'flex' : 'none';
+    });
+
+    // ── Botón Usuarios (por ID explícito) ─────────────────
+    const btnUsr = document.getElementById('btn-usuarios');
+    if (btnUsr) btnUsr.style.display = esTecnico ? 'none' : '';
+
+    // ── Card Usuarios en panel de inicio ──────────────────
+    const cardUsr = document.getElementById('card-usuarios');
+    if (cardUsr) cardUsr.style.display = esTecnico ? 'none' : '';
+
+    // ── Restricciones dentro del contenido ───────────────
+    // Solo ocultar si NO hay formulario operativo activo del técnico
+    if (esTecnico) {
+        const formActivo = document.getElementById('form-instalacion') ||
+                           document.getElementById('form-instalacion-panel');
+        if (!formActivo) _ocultarBotonesAdmin();
     }
 }
 
-function _ocultarBotonesTecnico() {
-    if (!currentUser) return;
-    const rol = (currentUser.rol || '').toLowerCase();
-    if (rol !== 'tecnico') return;
+// Alias legacy
+function aplicarPermisosTecnico() { verificarPermisos(); }
 
+/**
+ * Oculta botones de gestión global (Nuevo, Editar, Eliminar).
+ * NO toca botones operativos del técnico (Guardar Instalación, etc.)
+ */
+function _ocultarBotonesAdmin() {
     const content = document.getElementById('dashboard-content');
     if (!content) return;
 
-    const selectores = [
-        '.btn-cyan', '.act-btn.act-edit', '.act-btn.act-del',
-        '#btn-importar', '.drop-zone',
-        'button[onclick*="abrirModal"]',
+    // Selectores de gestión admin — nunca incluye .btn-cyan globalmente
+    const selectoresAdmin = [
+        '.act-btn.act-edit',
+        '.act-btn.act-del',
+        '#btn-importar',
+        '.drop-zone',
+        'button[onclick*="abrirModalArticulo"]',
+        'button[onclick*="abrirModalFactura"]',
+        'button[onclick*="abrirModalSalida"]',
         'button[onclick*="ejecutarImport"]',
-        'button[onclick*="guardar"]',
-        'button[onclick*="completar"]',
-        'button[onclick*="cancelar"]',
-        'button[onclick*="eliminar"]',
+        'button[onclick*="eliminarArticulo"]',
+        'button[onclick*="eliminarUsuario"]',
+        'button[onclick*="eliminarFactura"]',
     ];
-    selectores.forEach(sel => {
-        content.querySelectorAll(sel).forEach(el => { el.style.display = 'none'; });
+
+    selectoresAdmin.forEach(sel => {
+        content.querySelectorAll(sel).forEach(el => {
+            el.style.display = 'none';
+        });
+    });
+
+    // Ocultar solo botones .btn-cyan con texto de gestión admin
+    const textosAdmin = [
+        '+ Nuevo Artículo', '+ Nueva Factura', '+ Nuevo Usuario',
+        '+ Nuevo', '⬇ Exportar', '⬇ CSV', '📤 Importar Excel',
+        'Exportar', 'Importar'
+    ];
+    content.querySelectorAll('.btn-cyan, .btn-outline-sm').forEach(el => {
+        const txt = (el.textContent || '').trim();
+        if (textosAdmin.some(t => txt.includes(t))) {
+            el.style.display = 'none';
+        }
     });
 }
 
 // ════════════════════════════════════════════════════════════
-//  MÓDULO: MI BODEGA (Técnico — artículos asignados)
+//  MI BODEGA — Artículos asignados al técnico
 // ════════════════════════════════════════════════════════════
 
 async function cargarMisArticulos() {
     if (!currentUser) return;
     const content = document.getElementById('dashboard-content');
+
     content.innerHTML = `
         <div class="module-header">
-            <h2>🎒 Mi Bodega — ${esc(currentUser.nombre_completo || currentUser.usuario || 'Técnico')}</h2>
-            <button class="btn-nav" onclick="cargarMisArticulos()">↺ Actualizar</button>
+            <h2>🎒 Mi Bodega</h2>
+            <div class="header-actions">
+                <span class="su-name-badge">${esc(currentUser.nombre_completo || currentUser.usuario)}</span>
+                <button class="btn-nav" onclick="cargarMisArticulos()">↺ Actualizar</button>
+            </div>
         </div>
         <div class="inv-stats" id="mis-stats">
             <div class="istat loading-placeholder"></div>
@@ -3352,15 +3411,27 @@ async function cargarMisArticulos() {
         <p class="table-count" id="mis-count"></p>`;
 
     try {
-        // Filtrar por cuadrilla del técnico o por responsable
-        const cuadrilla = currentUser.cuadrilla || currentUser.usuario;
-        const { data, error } = await window.supabase
+        // Filtro estricto: solo artículos asignados a este técnico
+        const usuario   = currentUser.usuario || '';
+        const cuadrilla = currentUser.cuadrilla || '';
+
+        let query = window.supabase
             .from('bodega')
             .select('*')
-            .or(`cuadrilla.eq.${cuadrilla},responsable.eq.${currentUser.usuario}`)
-            .neq('estado', 'vendido')
-            .order('fecha_ingreso', { ascending: false });
+            .neq('estado', 'vendido');
 
+        // Construir filtro OR según columnas disponibles
+        if (cuadrilla) {
+            query = query.or(
+                `asignado_a.eq.${usuario},cuadrilla.eq.${cuadrilla},responsable.eq.${usuario}`
+            );
+        } else {
+            query = query.or(
+                `asignado_a.eq.${usuario},responsable.eq.${usuario}`
+            );
+        }
+
+        const { data, error } = await query.order('fecha_ingreso', { ascending: false });
         if (error) throw error;
 
         const items = data || [];
@@ -3368,169 +3439,229 @@ async function cargarMisArticulos() {
         const res   = items.filter(i => (i.estado||'').toLowerCase() === 'reservado').length;
 
         document.getElementById('mis-stats').innerHTML = `
-            <div class="istat"><span class="istat-num">${items.length}</span><span class="istat-label">Mi stock total</span></div>
-            <div class="istat istat-green"><span class="istat-num">${disp}</span><span class="istat-label">Disponibles</span></div>
-            <div class="istat istat-blue"><span class="istat-num">${res}</span><span class="istat-label">En uso</span></div>`;
+            <div class="istat">
+                <span class="istat-num">${items.length}</span>
+                <span class="istat-label">Mi stock total</span>
+            </div>
+            <div class="istat istat-green">
+                <span class="istat-num">${disp}</span>
+                <span class="istat-label">Disponibles</span>
+            </div>
+            <div class="istat istat-blue">
+                <span class="istat-num">${res}</span>
+                <span class="istat-label">En uso</span>
+            </div>`;
+
+        // Guardar en caché para formulario de instalaciones
+        window._misBodegaItems = items;
 
         const tbody = document.getElementById('mis-tbody');
         const count = document.getElementById('mis-count');
 
         if (!items.length) {
-            tbody.innerHTML = '<tr><td colspan="6" class="empty-row">No tienes artículos asignados aún.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" class="empty-row">No tienes artículos asignados aún. Contacta a bodega central.</td></tr>';
+            if (count) count.textContent = '';
             return;
         }
 
-        // Guardar en caché para el formulario de instalaciones
-        window._misBodegaItems = items;
-
         tbody.innerHTML = items.map((item, idx) => `
             <tr>
-                <td class="row-num">${idx+1}</td>
+                <td class="row-num">${idx + 1}</td>
                 <td class="td-bold">${esc(item.nombre || item.articulo || '—')}</td>
                 <td><span class="sku-code">${esc(item.codigo || '—')}</span></td>
                 <td>${item.serie
                     ? `<code class="serie-code">${esc(item.serie)}</code>`
                     : '<span class="td-date">—</span>'}</td>
-                <td style="text-align:center;font-family:var(--font-mono)">${item.cantidad||1}</td>
-                <td><span class="badge badge-${(item.estado||'disponible').toLowerCase()}">${esc(item.estado||'disponible')}</span></td>
+                <td style="text-align:center;font-family:var(--font-mono)">
+                    ${item.tipo_material === 'miscelaneo' ? (item.cantidad || 1) : 1}
+                </td>
+                <td><span class="badge badge-${(item.estado||'disponible').toLowerCase()}">
+                    ${esc(item.estado || 'disponible')}
+                </span></td>
             </tr>`).join('');
 
-        if (count) count.textContent = items.length + ' artículos en tu cargo';
+        if (count) count.textContent = `${items.length} artículo${items.length !== 1 ? 's' : ''} en tu cargo`;
 
-    } catch(err) {
-        document.getElementById('mis-tbody').innerHTML =
+    } catch (err) {
+        const tbody = document.getElementById('mis-tbody');
+        if (tbody) tbody.innerHTML =
             `<tr><td colspan="6" class="empty-row error-msg">❌ ${err.message}</td></tr>`;
     }
 }
 
 // ════════════════════════════════════════════════════════════
-//  MÓDULO: INSTALACIONES (Formulario de descarga de material)
+//  INSTALACIONES — Formulario de descarga de material
 // ════════════════════════════════════════════════════════════
 
 async function abrirInstalacion() {
-    // Asegurar que tenemos los artículos del técnico cargados
-    if (!window._misBodegaItems || !window._misBodegaItems.length) {
-        await cargarMisArticulos();
+    // Siempre recargar stock fresco al abrir
+    window._misBodegaItems = null;
+
+    // Mostrar estado de carga en el panel
+    const content = document.getElementById('dashboard-content');
+    if (content) {
+        content.innerHTML = `
+            <div class="module-header">
+                <h2>⚡ INSTALACIONES</h2>
+            </div>
+            <p class="loading-msg">⏳ Cargando tu stock personal…</p>`;
     }
-    const items = window._misBodegaItems || [];
-    const disponibles = items.filter(i => (i.estado||'').toLowerCase() !== 'vendido');
+
+    // Cargar stock del técnico sin cambiar el panel (usamos fetch directo)
+    const usuario   = currentUser?.usuario || '';
+    const cuadrilla = currentUser?.cuadrilla || '';
+
+    let query = window.supabase
+        .from('bodega')
+        .select('*')
+        .neq('estado', 'vendido');
+
+    if (cuadrilla) {
+        query = query.or(`asignado_a.eq.${usuario},cuadrilla.eq.${cuadrilla},responsable.eq.${usuario}`);
+    } else {
+        query = query.or(`asignado_a.eq.${usuario},responsable.eq.${usuario}`);
+    }
+
+    const { data } = await query.order('fecha_ingreso', { ascending: false });
+    window._misBodegaItems = data || [];
+
+    const disponibles = window._misBodegaItems.filter(
+        i => (i.estado || '').toLowerCase() !== 'vendido'
+    );
 
     const optsItems = disponibles.length
         ? disponibles.map(i => {
-            const label = `${i.nombre||i.articulo||'Sin nombre'} ${i.serie ? '— ' + i.serie : ''} (${i.cantidad||1} disp.)`;
+            const maxStock = i.tipo_material === 'miscelaneo' ? (i.cantidad || 1) : 1;
+            const label = `${i.nombre || i.articulo || 'Sin nombre'}${i.serie ? ' — ' + i.serie : ''} · ${maxStock} disp.`;
             return `<option value="${i.id}"
-                data-max="${i.tipo_material === 'miscelaneo' ? (i.cantidad||1) : 1}"
-                data-nombre="${esc(i.nombre||i.articulo||'')}"
-                data-serie="${esc(i.serie||'')}"
-                data-codigo="${esc(i.codigo||'')}">
+                data-max="${maxStock}"
+                data-nombre="${esc(i.nombre || i.articulo || '')}"
+                data-serie="${esc(i.serie || '')}"
+                data-codigo="${esc(i.codigo || '')}">
                 ${esc(label)}
             </option>`;
         }).join('')
         : '<option value="" disabled>Sin artículos disponibles en tu bodega</option>';
 
-    document.body.insertAdjacentHTML('beforeend', `
-        <div class="modal-overlay" id="modal-instalacion" onclick="cerrarModalClick(event,'modal-instalacion')">
-            <div class="modal-content modal-inventario">
-                <div class="modal-head">
-                    <div class="modal-head-left">
-                        <span class="modal-icon">⚡</span>
-                        <span>Registrar Instalación</span>
-                    </div>
-                    <button class="modal-close" onclick="cerrarModal('modal-instalacion')">✕</button>
-                </div>
-                <form id="form-instalacion" onsubmit="guardarInstalacion(event)">
-                    <div class="form-grid">
-
-                        <div class="field field-full">
-                            <label>Nº SOLICITUD / OT <span class="req">*</span></label>
-                            <input type="text" id="inst-ot" required
-                                placeholder="OT-2025-0001"
-                                style="font-family:var(--font-mono)" />
-                        </div>
-
-                        <div class="field field-full">
-                            <label>MATERIAL UTILIZADO <span class="req">*</span>
-                                <span id="inst-stock-badge" class="series-count-badge" style="display:none"></span>
-                            </label>
-                            <select id="inst-item" required
-                                onchange="onInstItemChange(this)">
-                                <option value="">— Seleccionar de mi bodega —</option>
-                                ${optsItems}
-                            </select>
-                            <div id="inst-codigo-wrap" class="sal-codigo-interno hidden">
-                                <span class="sal-codigo-label">Código interno:</span>
-                                <code id="inst-codigo-val" class="serie-code"></code>
-                            </div>
-                        </div>
-
-                        <div class="field">
-                            <label>CANTIDAD UTILIZADA <span class="req">*</span></label>
-                            <input type="number" id="inst-cantidad"
-                                min="1" value="1" required
-                                oninput="validarCantidadInst(this)" />
-                            <div id="inst-cant-error" style="font-size:.75rem;color:var(--danger);margin-top:.2rem;display:none">
-                                ⚠ No puedes descargar más de lo que tienes en stock.
-                            </div>
-                        </div>
-
-                        <div class="field">
-                            <label>DIRECCIÓN / CLIENTE</label>
-                            <input type="text" id="inst-destino"
-                                placeholder="Dirección de la instalación" />
-                        </div>
-
-                        <div class="field field-full">
-                            <label>DESCRIPCIÓN DEL TRABAJO</label>
-                            <textarea id="inst-notas" rows="2"
-                                placeholder="Tipo de instalación, observaciones…"></textarea>
-                        </div>
-
-                    </div>
-                    <div class="modal-foot">
-                        <button type="button" class="btn-ghost-sm"
-                            onclick="cerrarModal('modal-instalacion')">Cancelar</button>
-                        <button type="submit" class="btn-cyan" id="btn-guardar-inst">
-                            ⚡ Guardar Instalación
-                        </button>
-                    </div>
-                </form>
+    // Renderizar formulario directamente en el panel (no modal)
+    // — así verificarPermisos no lo interrumpe
+    if (content) {
+        content.innerHTML = `
+            <div class="module-header">
+                <h2>⚡ INSTALACIONES</h2>
+                <button class="btn-nav" onclick="cargarMisArticulos()">← Volver a mi bodega</button>
             </div>
-        </div>`);
+
+            <form id="form-instalacion-panel" onsubmit="guardarInstalacion(event)"
+                  class="inst-panel-form">
+
+                <div class="form-grid">
+
+                    <div class="field field-full">
+                        <label>Nº SOLICITUD / OT <span class="req">*</span></label>
+                        <input type="text" id="inst-ot" required
+                            placeholder="OT-2025-0001"
+                            style="font-family:var(--font-mono);font-size:1rem" autofocus />
+                    </div>
+
+                    <div class="field field-full">
+                        <label>MATERIAL UTILIZADO <span class="req">*</span>
+                            <span id="inst-stock-badge"
+                                class="series-count-badge"
+                                style="display:none"></span>
+                        </label>
+                        <select id="inst-item" required
+                            onchange="onInstItemChange(this)"
+                            class="filter-select" style="width:100%">
+                            <option value="">— Seleccionar de mi bodega —</option>
+                            ${optsItems}
+                        </select>
+                        <div id="inst-codigo-wrap" class="sal-codigo-interno hidden">
+                            <span class="sal-codigo-label">Código interno:</span>
+                            <code id="inst-codigo-val" class="serie-code"></code>
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <label>CANTIDAD UTILIZADA <span class="req">*</span></label>
+                        <input type="number" id="inst-cantidad"
+                            min="1" max="1" value="1" required
+                            oninput="validarCantidadInst(this)" />
+                        <div id="inst-cant-error"
+                            style="font-size:.78rem;color:var(--danger);
+                                   margin-top:.3rem;display:none">
+                            ⚠️ Stock insuficiente en tu bodega personal.
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <label>DIRECCIÓN / CLIENTE</label>
+                        <input type="text" id="inst-destino"
+                            placeholder="Dirección de la instalación" />
+                    </div>
+
+                    <div class="field field-full">
+                        <label>DESCRIPCIÓN DEL TRABAJO</label>
+                        <textarea id="inst-notas" rows="3"
+                            placeholder="Tipo de instalación, observaciones técnicas…"></textarea>
+                    </div>
+
+                </div>
+
+                <div class="inst-panel-footer">
+                    <button type="button" class="btn-ghost-sm"
+                        onclick="cargarMisArticulos()">Cancelar</button>
+                    <button type="submit" class="btn-cyan" id="btn-guardar-inst">
+                        ⚡ Guardar Instalación
+                    </button>
+                </div>
+
+            </form>`;
+    }
 }
 
 function onInstItemChange(sel) {
     const opt      = sel.options[sel.selectedIndex];
-    const maxStock = parseInt(opt.getAttribute('data-max')||1);
-    const codigo   = opt.getAttribute('data-codigo')||'';
-    const cantEl   = document.getElementById('inst-cantidad');
-    const badgeEl  = document.getElementById('inst-stock-badge');
-    const codWrap  = document.getElementById('inst-codigo-wrap');
-    const codVal   = document.getElementById('inst-codigo-val');
+    const maxStock = parseInt(opt.getAttribute('data-max') || 1);
+    const codigo   = opt.getAttribute('data-codigo') || '';
+
+    const cantEl  = document.getElementById('inst-cantidad');
+    const badgeEl = document.getElementById('inst-stock-badge');
+    const codWrap = document.getElementById('inst-codigo-wrap');
+    const codVal  = document.getElementById('inst-codigo-val');
+    const errEl   = document.getElementById('inst-cant-error');
+    const btnEl   = document.getElementById('btn-guardar-inst');
 
     if (cantEl) { cantEl.max = maxStock; cantEl.value = 1; }
+    if (errEl)  errEl.style.display = 'none';
+    if (btnEl)  btnEl.disabled = false;
+
     if (badgeEl) {
-        badgeEl.textContent = `Stock: ${maxStock}`;
-        badgeEl.style.display = 'inline-block';
-        badgeEl.style.background = maxStock > 0 ? 'rgba(0,230,118,.15)' : 'rgba(255,77,109,.15)';
-        badgeEl.style.color = maxStock > 0 ? '#00e676' : '#ff4d6d';
-        badgeEl.style.border = maxStock > 0 ? '1px solid rgba(0,230,118,.3)' : '1px solid rgba(255,77,109,.3)';
+        badgeEl.textContent    = `Stock: ${maxStock}`;
+        badgeEl.style.display  = 'inline-block';
+        badgeEl.style.background = maxStock > 0
+            ? 'rgba(0,230,118,.15)' : 'rgba(255,77,109,.15)';
+        badgeEl.style.color    = maxStock > 0 ? '#00e676' : '#ff4d6d';
+        badgeEl.style.border   = maxStock > 0
+            ? '1px solid rgba(0,230,118,.3)' : '1px solid rgba(255,77,109,.3)';
     }
-    if (codWrap && codVal && codigo) {
-        codVal.textContent = codigo;
-        codWrap.classList.remove('hidden');
-    } else if (codWrap) {
-        codWrap.classList.add('hidden');
+
+    if (codWrap && codVal) {
+        if (codigo) {
+            codVal.textContent = codigo;
+            codWrap.classList.remove('hidden');
+        } else {
+            codWrap.classList.add('hidden');
+        }
     }
-    const errEl = document.getElementById('inst-cant-error');
-    if (errEl) errEl.style.display = 'none';
 }
 
 function validarCantidadInst(input) {
-    const max    = parseInt(input.max||1);
-    const val    = parseInt(input.value||0);
-    const errEl  = document.getElementById('inst-cant-error');
-    const btnEl  = document.getElementById('btn-guardar-inst');
+    const max      = parseInt(input.max || 1);
+    const val      = parseInt(input.value || 0);
     const invalido = val > max || val < 1;
+    const errEl    = document.getElementById('inst-cant-error');
+    const btnEl    = document.getElementById('btn-guardar-inst');
     if (errEl) errEl.style.display = invalido ? 'block' : 'none';
     if (btnEl) btnEl.disabled = invalido;
 }
@@ -3538,67 +3669,73 @@ function validarCantidadInst(input) {
 async function guardarInstalacion(e) {
     e.preventDefault();
 
-    const ot       = document.getElementById('inst-ot').value.trim();
-    const itemId   = document.getElementById('inst-item').value;
-    const cantidad = parseInt(document.getElementById('inst-cantidad').value||1);
-    const destino  = document.getElementById('inst-destino').value.trim() || null;
-    const notas    = document.getElementById('inst-notas').value.trim()   || null;
+    const ot       = document.getElementById('inst-ot')?.value.trim();
+    const itemId   = document.getElementById('inst-item')?.value;
+    const cantidad = parseInt(document.getElementById('inst-cantidad')?.value || 1);
+    const destino  = document.getElementById('inst-destino')?.value.trim() || null;
+    const notas    = document.getElementById('inst-notas')?.value.trim()   || null;
 
     if (!ot)     { alert('El número de OT es obligatorio.'); return; }
     if (!itemId) { alert('Selecciona el material utilizado.'); return; }
 
-    const item = (window._misBodegaItems||[]).find(i => String(i.id) === String(itemId));
-    if (!item)   { alert('Artículo no encontrado.'); return; }
+    const item = (window._misBodegaItems || []).find(i => String(i.id) === String(itemId));
+    if (!item)   { alert('Artículo no encontrado. Actualiza tu bodega.'); return; }
 
-    const maxStock = item.tipo_material === 'miscelaneo' ? (item.cantidad||1) : 1;
+    const maxStock = item.tipo_material === 'miscelaneo' ? (item.cantidad || 1) : 1;
     if (cantidad > maxStock) {
-        alert(`No puedes descargar ${cantidad} unidades. Solo tienes ${maxStock} en stock.`);
+        alert(
+            `⚠️ Stock insuficiente en tu bodega personal.\n` +
+            `Tienes ${maxStock} unidad(es) disponible(s).\n` +
+            `No puedes descargar ${cantidad}.`
+        );
+        document.getElementById('inst-cantidad')?.focus();
         return;
     }
 
     const btn = document.getElementById('btn-guardar-inst');
-    if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Guardando…'; }
 
     try {
-        // 1. Registrar en tabla servicios/salidas
-        const payload = {
-            bodega_id:    item.id,
-            numero_serie: item.serie || null,
-            modelo:       item.nombre || item.articulo || null,
+        // 1. Registrar en tabla salidas
+        const { error: errSal } = await window.supabase.from('salidas').insert({
+            bodega_id:       item.id,
+            numero_serie:    item.serie || null,
+            modelo:          item.nombre || item.articulo || null,
             cantidad,
-            motivo:       'instalación',
+            motivo:          'instalación',
             destino,
-            responsable:  currentUser.nombre_completo || currentUser.usuario,
-            cuadrilla:    currentUser.cuadrilla || null,
-            numero_ot:    ot,
+            responsable:     currentUser.nombre_completo || currentUser.usuario,
+            cuadrilla:       currentUser.cuadrilla || null,
+            numero_ot:       ot,
             estado_material: 'nuevo',
             notas
-        };
-        const { error: errSal } = await window.supabase.from('salidas').insert(payload);
+        });
         if (errSal) throw errSal;
 
         // 2. Descontar stock en bodega
         if (item.tipo_material === 'miscelaneo') {
-            const nuevoStock = (item.cantidad||1) - cantidad;
+            const nuevoStock  = Math.max(0, (item.cantidad || 1) - cantidad);
             const nuevoEstado = nuevoStock <= 0 ? 'vendido' : 'disponible';
-            await window.supabase.from('bodega')
-                .update({ cantidad: Math.max(0, nuevoStock), estado: nuevoEstado })
+            const { error: errUpd } = await window.supabase
+                .from('bodega')
+                .update({ cantidad: nuevoStock, estado: nuevoEstado })
                 .eq('id', item.id);
+            if (errUpd) throw errUpd;
         } else {
-            await window.supabase.from('bodega')
+            const { error: errUpd } = await window.supabase
+                .from('bodega')
                 .update({ estado: 'vendido' })
                 .eq('id', item.id);
+            if (errUpd) throw errUpd;
         }
 
-        // 3. Actualizar caché local
+        // 3. Limpiar caché y regresar a Mi Bodega
         window._misBodegaItems = null;
+        alert(`✅ Instalación OT ${ot} registrada. Stock actualizado.`);
+        cargarMisArticulos();
 
-        cerrarModal('modal-instalacion');
-        alert(`✅ Instalación OT ${ot} registrada correctamente.`);
-
-    } catch(err) {
-        alert('Error: ' + err.message);
-    } finally {
+    } catch (err) {
+        alert('Error al guardar: ' + err.message);
         if (btn) { btn.disabled = false; btn.textContent = '⚡ Guardar Instalación'; }
     }
 }

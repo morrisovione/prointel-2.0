@@ -2136,3 +2136,34 @@ code.serie-code {
     vertical-align: middle;
     font-family: var(--font-mono);
 }
+
+/* ═══════════════════════════════════════════════
+   INSTALACIONES — Formulario en panel
+═══════════════════════════════════════════════ */
+.inst-panel-form {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.4rem;
+    max-width: 680px;
+}
+.inst-panel-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: .7rem;
+    padding-top: 1rem;
+    margin-top: .8rem;
+    border-top: 1px solid var(--border);
+}
+
+/* Badge nombre del técnico en el header */
+.su-name-badge {
+    font-size: .78rem;
+    font-weight: 600;
+    color: var(--cyan);
+    background: rgba(0,200,240,.08);
+    border: 1px solid var(--border-cyan);
+    padding: .25rem .7rem;
+    border-radius: 20px;
+    font-family: var(--font-mono);
+}
