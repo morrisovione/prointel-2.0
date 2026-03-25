@@ -292,12 +292,32 @@ function limpiarVistaLogin() {
 
 // ── Logout ────────────────────────────────────
 function logout() {
+    // Limpiar nombre antes de salir para que no quede visible un instante
+    const userEl   = document.getElementById('user-display');
+    const avatarEl = document.getElementById('su-avatar');
+    if (userEl)   userEl.textContent   = 'Usuario';
+    if (avatarEl) avatarEl.textContent = 'U';
+
+    // Limpiar estado de la app
     currentUser     = null;
     cacheInventario = [];
     cacheFacturas   = [];
+    cacheSalidas    = [];
+    window._misBodegaItems = null;
+
+    // Limpiar sesión persistida
     localStorage.removeItem('prointel_session');
+
+    // Detener reloj
     detenerReloj();
-    limpiarVistaLogin();   // Limpiar formulario antes de mostrar landing
+
+    // Limpiar rol del body para que CSS no quede en modo técnico
+    document.body.removeAttribute('data-rol');
+
+    // Limpiar formulario de login
+    limpiarVistaLogin();
+
+    // Mostrar landing con el botón INICIAR SESIÓN visible
     showSection('view-landing');
 }
 
@@ -375,6 +395,8 @@ function cargarServicios() {
     const hoy = new Date().toLocaleDateString('es-SV', {
         weekday:'long', year:'numeric', month:'long', day:'numeric'
     });
+    const esTecnico = (currentUser?.rol || '').toLowerCase() === 'tecnico';
+
     document.getElementById('dashboard-content').innerHTML = `
         <div class="module-header">
             <h2>Panel de Servicios Residenciales</h2>
@@ -384,6 +406,26 @@ function cargarServicios() {
             <p class="welcome-date">${hoy}</p>
         </div>
         <div class="cards-grid">
+
+            ${esTecnico ? `
+            <!-- Tarjetas del técnico -->
+            <div class="summary-card" onclick="cargarMisArticulos()">
+                <div class="card-icon">🎒</div>
+                <div class="card-label">Mi Bodega</div>
+                <div class="card-sub">Ver mi stock personal</div>
+            </div>
+            <div class="summary-card" onclick="abrirInstalacion()">
+                <div class="card-icon">⚡</div>
+                <div class="card-label">Instalaciones</div>
+                <div class="card-sub">Registrar trabajo de campo</div>
+            </div>
+            <div class="summary-card" onclick="changeTab('salidas')">
+                <div class="card-icon">📤</div>
+                <div class="card-label">Mis Salidas</div>
+                <div class="card-sub">Historial de materiales</div>
+            </div>
+            ` : `
+            <!-- Tarjetas de admin/bodega -->
             <div class="summary-card" onclick="changeTab('bodega')">
                 <div class="card-icon">📦</div>
                 <div class="card-label">Bodega / Series</div>
@@ -399,6 +441,8 @@ function cargarServicios() {
                 <div class="card-label">Usuarios</div>
                 <div class="card-sub">Gestión de accesos</div>
             </div>
+            `}
+
         </div>`;
 }
 
