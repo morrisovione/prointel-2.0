@@ -136,15 +136,22 @@
                 </div>
             </div>
             <nav class="menu">
+                <!-- Menú visible para TODOS -->
                 <button onclick="changeTab('servicios')"     class="menu-btn">🏠 Inicio</button>
-                <button onclick="changeTab('importar')"      class="menu-btn">📤 Importar Archivo</button>
-                <button onclick="changeTab('salidas')"       class="menu-btn">📤 Salida</button>
-                <button onclick="changeTab('articulos')"     class="menu-btn">📋 Artículos</button>
-                <button onclick="changeTab('reportes')"      class="menu-btn">📊 Reportes</button>
-                <button onclick="changeTab('bodega')"        class="menu-btn">📦 Inventario Bodega y Cuadrilla</button>
-                <button onclick="changeTab('transferencia')" class="menu-btn">🔄 Transferencia de Inventario</button>
-                <div class="menu-divider"></div>
-                <button onclick="changeTab('usuarios')"      class="menu-btn">👤 Usuarios</button>
+                <button onclick="changeTab('salidas')"       class="menu-btn" data-roles="all">📤 Salida</button>
+
+                <!-- Menú solo TÉCNICO -->
+                <button onclick="changeTab('mis-articulos')" class="menu-btn menu-tecnico-only">🎒 Mi Bodega</button>
+                <button onclick="abrirInstalacion()"         class="menu-btn menu-tecnico-only btn-instalacion">⚡ INSTALACIONES</button>
+
+                <!-- Menú ADMIN / BODEGA (oculto para técnico) -->
+                <button onclick="changeTab('importar')"      class="menu-btn menu-admin-only">📤 Importar Archivo</button>
+                <button onclick="changeTab('articulos')"     class="menu-btn menu-admin-only">📋 Artículos</button>
+                <button onclick="changeTab('reportes')"      class="menu-btn menu-admin-only">📊 Reportes</button>
+                <button onclick="changeTab('bodega')"        class="menu-btn menu-admin-only">📦 Inventario Bodega</button>
+                <button onclick="changeTab('transferencia')" class="menu-btn menu-admin-only">🔄 Transferencias</button>
+                <div class="menu-divider menu-admin-only"></div>
+                <button onclick="changeTab('usuarios')"      class="menu-btn menu-admin-only">👤 Usuarios</button>
             </nav>
             <button class="btn-diag" onclick="runDiagnostic()">🔬 Diagnóstico del sistema</button>
             <button onclick="logout()" class="btn-logout">⏻ &nbsp;Cerrar Sesión</button>

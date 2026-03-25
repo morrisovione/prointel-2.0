@@ -353,6 +353,7 @@ function changeTab(tab) {
     if (tab === 'servicios')     cargarServicios();
     if (tab === 'importar')      cargarImportar();
     if (tab === 'articulos')     cargarArticulos();
+    if (tab === 'mis-articulos') cargarMisArticulos();
     if (tab === 'bodega')        cargarInventarioBodega();
     if (tab === 'salidas')       cargarSalidas();
     if (tab === 'transferencia') cargarTransferencias();
@@ -3267,28 +3268,29 @@ function _descargarCSV(csv, nombre) {
 // ════════════════════════════════════════════════════════════
 
 /**
- * Si el usuario tiene rol 'tecnico', oculta todos los botones
- * de acción (Nuevo, Editar, Eliminar, Guardar) del dashboard.
- * Se aplica una vez al iniciar sesión y de nuevo al cambiar de tab
- * (los tabs re-inyectan el HTML, así que hay que re-aplicar).
+ * Aplica restricciones del perfil Técnico:
+ * - Menú lateral filtrado (solo ve sus opciones)
+ * - Botones de escritura ocultos en el contenido
+ * - Solo ve su propio nombre de perfil
  */
 function aplicarPermisosTecnico() {
     if (!currentUser) return;
     const rol = (currentUser.rol || '').toLowerCase();
-    if (rol !== 'tecnico') return; // Admin y Bodega tienen acceso total
 
-    // Marcar el body para que el CSS también pueda actuar
-    document.body.setAttribute('data-rol', 'tecnico');
+    // Marcar el body con el rol para que CSS actúe
+    document.body.setAttribute('data-rol', rol);
 
-    // Ocultar botones de acción del dashboard en tiempo real
-    _ocultarBotonesTecnico();
+    if (rol === 'tecnico') {
+        // Ocultar menú de admin, mostrar menú de técnico
+        document.querySelectorAll('.menu-admin-only').forEach(el => el.style.display = 'none');
+        document.querySelectorAll('.menu-tecnico-only').forEach(el => el.style.display = 'flex');
+    } else {
+        // Admin/Bodega: mostrar todo, ocultar menú de técnico
+        document.querySelectorAll('.menu-admin-only').forEach(el => el.style.display = '');
+        document.querySelectorAll('.menu-tecnico-only').forEach(el => el.style.display = 'none');
+    }
 }
 
-/**
- * Aplica restricciones visuales: oculta/deshabilita todos los
- * elementos de escritura en el dashboard-content.
- * Se llama desde changeTab() después de renderizar cada módulo.
- */
 function _ocultarBotonesTecnico() {
     if (!currentUser) return;
     const rol = (currentUser.rol || '').toLowerCase();
@@ -3297,48 +3299,309 @@ function _ocultarBotonesTecnico() {
     const content = document.getElementById('dashboard-content');
     if (!content) return;
 
-    // Selectores de elementos de escritura
     const selectores = [
-        '.btn-cyan',           // Botones primarios (+ Nuevo, Guardar, Importar…)
-        '.act-btn.act-edit',   // Botón Editar en tablas
-        '.act-btn.act-del',    // Botón Eliminar en tablas
-        '#btn-importar',       // Botón Importar archivo
-        '.drop-zone',          // Zona de drop de archivos
-        'button[onclick*="abrirModal"]',       // Cualquier botón que abra modal
-        'button[onclick*="ejecutarImport"]',   // Importar
-        'button[onclick*="guardar"]',          // Guardar directo
-        'button[onclick*="completar"]',        // Completar transferencia
-        'button[onclick*="cancelar"]',         // Cancelar transferencia
-        'button[onclick*="eliminar"]',         // Eliminar
+        '.btn-cyan', '.act-btn.act-edit', '.act-btn.act-del',
+        '#btn-importar', '.drop-zone',
+        'button[onclick*="abrirModal"]',
+        'button[onclick*="ejecutarImport"]',
+        'button[onclick*="guardar"]',
+        'button[onclick*="completar"]',
+        'button[onclick*="cancelar"]',
+        'button[onclick*="eliminar"]',
     ];
-
     selectores.forEach(sel => {
-        content.querySelectorAll(sel).forEach(el => {
-            el.style.display = 'none';
-        });
+        content.querySelectorAll(sel).forEach(el => { el.style.display = 'none'; });
     });
-
-    // Deshabilitar también selects de filtro de estado para evitar edición
-    // (Los selects de solo FILTRO los dejamos activos — son de lectura)
-
-    // Técnico: sin banner visible — la restricción opera en silencio
 }
 
-/**
- * Wrapper que intercepta changeTab para re-aplicar restricciones
- * después de que cada módulo inyecta su HTML.
- * Se inicializa una sola vez al cargar.
- */
-(function parchearChangeTabParaTecnico() {
-    const _original = window.changeTab;
-    if (!_original || window._changeTabParcheado) return;
-    window._changeTabParcheado = true;
-    window.changeTab = function(tab) {
-        _original(tab);
-        // Esperar un tick para que el módulo termine de renderizar
-        setTimeout(_ocultarBotonesTecnico, 50);
-    };
-})();
+// ════════════════════════════════════════════════════════════
+//  MÓDULO: MI BODEGA (Técnico — artículos asignados)
+// ════════════════════════════════════════════════════════════
+
+async function cargarMisArticulos() {
+    if (!currentUser) return;
+    const content = document.getElementById('dashboard-content');
+    content.innerHTML = `
+        <div class="module-header">
+            <h2>🎒 Mi Bodega — ${esc(currentUser.nombre_completo || currentUser.usuario || 'Técnico')}</h2>
+            <button class="btn-nav" onclick="cargarMisArticulos()">↺ Actualizar</button>
+        </div>
+        <div class="inv-stats" id="mis-stats">
+            <div class="istat loading-placeholder"></div>
+            <div class="istat loading-placeholder"></div>
+            <div class="istat loading-placeholder"></div>
+        </div>
+        <div class="inv-toolbar">
+            <div class="search-bar" style="flex:1">
+                <input type="text" id="mis-search"
+                    placeholder="🔍  Buscar en mi stock…"
+                    oninput="filtrarTabla('mis-search','tabla-mis-art')" />
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="data-table" id="tabla-mis-art">
+                <thead><tr>
+                    <th>#</th><th>ARTÍCULO</th><th>CÓDIGO</th>
+                    <th>SERIE</th><th>CANT.</th><th>ESTADO</th>
+                </tr></thead>
+                <tbody id="mis-tbody">
+                    <tr><td colspan="6" class="empty-row">⏳ Cargando tu stock…</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="table-count" id="mis-count"></p>`;
+
+    try {
+        // Filtrar por cuadrilla del técnico o por responsable
+        const cuadrilla = currentUser.cuadrilla || currentUser.usuario;
+        const { data, error } = await window.supabase
+            .from('bodega')
+            .select('*')
+            .or(`cuadrilla.eq.${cuadrilla},responsable.eq.${currentUser.usuario}`)
+            .neq('estado', 'vendido')
+            .order('fecha_ingreso', { ascending: false });
+
+        if (error) throw error;
+
+        const items = data || [];
+        const disp  = items.filter(i => (i.estado||'').toLowerCase() === 'disponible').length;
+        const res   = items.filter(i => (i.estado||'').toLowerCase() === 'reservado').length;
+
+        document.getElementById('mis-stats').innerHTML = `
+            <div class="istat"><span class="istat-num">${items.length}</span><span class="istat-label">Mi stock total</span></div>
+            <div class="istat istat-green"><span class="istat-num">${disp}</span><span class="istat-label">Disponibles</span></div>
+            <div class="istat istat-blue"><span class="istat-num">${res}</span><span class="istat-label">En uso</span></div>`;
+
+        const tbody = document.getElementById('mis-tbody');
+        const count = document.getElementById('mis-count');
+
+        if (!items.length) {
+            tbody.innerHTML = '<tr><td colspan="6" class="empty-row">No tienes artículos asignados aún.</td></tr>';
+            return;
+        }
+
+        // Guardar en caché para el formulario de instalaciones
+        window._misBodegaItems = items;
+
+        tbody.innerHTML = items.map((item, idx) => `
+            <tr>
+                <td class="row-num">${idx+1}</td>
+                <td class="td-bold">${esc(item.nombre || item.articulo || '—')}</td>
+                <td><span class="sku-code">${esc(item.codigo || '—')}</span></td>
+                <td>${item.serie
+                    ? `<code class="serie-code">${esc(item.serie)}</code>`
+                    : '<span class="td-date">—</span>'}</td>
+                <td style="text-align:center;font-family:var(--font-mono)">${item.cantidad||1}</td>
+                <td><span class="badge badge-${(item.estado||'disponible').toLowerCase()}">${esc(item.estado||'disponible')}</span></td>
+            </tr>`).join('');
+
+        if (count) count.textContent = items.length + ' artículos en tu cargo';
+
+    } catch(err) {
+        document.getElementById('mis-tbody').innerHTML =
+            `<tr><td colspan="6" class="empty-row error-msg">❌ ${err.message}</td></tr>`;
+    }
+}
+
+// ════════════════════════════════════════════════════════════
+//  MÓDULO: INSTALACIONES (Formulario de descarga de material)
+// ════════════════════════════════════════════════════════════
+
+async function abrirInstalacion() {
+    // Asegurar que tenemos los artículos del técnico cargados
+    if (!window._misBodegaItems || !window._misBodegaItems.length) {
+        await cargarMisArticulos();
+    }
+    const items = window._misBodegaItems || [];
+    const disponibles = items.filter(i => (i.estado||'').toLowerCase() !== 'vendido');
+
+    const optsItems = disponibles.length
+        ? disponibles.map(i => {
+            const label = `${i.nombre||i.articulo||'Sin nombre'} ${i.serie ? '— ' + i.serie : ''} (${i.cantidad||1} disp.)`;
+            return `<option value="${i.id}"
+                data-max="${i.tipo_material === 'miscelaneo' ? (i.cantidad||1) : 1}"
+                data-nombre="${esc(i.nombre||i.articulo||'')}"
+                data-serie="${esc(i.serie||'')}"
+                data-codigo="${esc(i.codigo||'')}">
+                ${esc(label)}
+            </option>`;
+        }).join('')
+        : '<option value="" disabled>Sin artículos disponibles en tu bodega</option>';
+
+    document.body.insertAdjacentHTML('beforeend', `
+        <div class="modal-overlay" id="modal-instalacion" onclick="cerrarModalClick(event,'modal-instalacion')">
+            <div class="modal-content modal-inventario">
+                <div class="modal-head">
+                    <div class="modal-head-left">
+                        <span class="modal-icon">⚡</span>
+                        <span>Registrar Instalación</span>
+                    </div>
+                    <button class="modal-close" onclick="cerrarModal('modal-instalacion')">✕</button>
+                </div>
+                <form id="form-instalacion" onsubmit="guardarInstalacion(event)">
+                    <div class="form-grid">
+
+                        <div class="field field-full">
+                            <label>Nº SOLICITUD / OT <span class="req">*</span></label>
+                            <input type="text" id="inst-ot" required
+                                placeholder="OT-2025-0001"
+                                style="font-family:var(--font-mono)" />
+                        </div>
+
+                        <div class="field field-full">
+                            <label>MATERIAL UTILIZADO <span class="req">*</span>
+                                <span id="inst-stock-badge" class="series-count-badge" style="display:none"></span>
+                            </label>
+                            <select id="inst-item" required
+                                onchange="onInstItemChange(this)">
+                                <option value="">— Seleccionar de mi bodega —</option>
+                                ${optsItems}
+                            </select>
+                            <div id="inst-codigo-wrap" class="sal-codigo-interno hidden">
+                                <span class="sal-codigo-label">Código interno:</span>
+                                <code id="inst-codigo-val" class="serie-code"></code>
+                            </div>
+                        </div>
+
+                        <div class="field">
+                            <label>CANTIDAD UTILIZADA <span class="req">*</span></label>
+                            <input type="number" id="inst-cantidad"
+                                min="1" value="1" required
+                                oninput="validarCantidadInst(this)" />
+                            <div id="inst-cant-error" style="font-size:.75rem;color:var(--danger);margin-top:.2rem;display:none">
+                                ⚠ No puedes descargar más de lo que tienes en stock.
+                            </div>
+                        </div>
+
+                        <div class="field">
+                            <label>DIRECCIÓN / CLIENTE</label>
+                            <input type="text" id="inst-destino"
+                                placeholder="Dirección de la instalación" />
+                        </div>
+
+                        <div class="field field-full">
+                            <label>DESCRIPCIÓN DEL TRABAJO</label>
+                            <textarea id="inst-notas" rows="2"
+                                placeholder="Tipo de instalación, observaciones…"></textarea>
+                        </div>
+
+                    </div>
+                    <div class="modal-foot">
+                        <button type="button" class="btn-ghost-sm"
+                            onclick="cerrarModal('modal-instalacion')">Cancelar</button>
+                        <button type="submit" class="btn-cyan" id="btn-guardar-inst">
+                            ⚡ Guardar Instalación
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>`);
+}
+
+function onInstItemChange(sel) {
+    const opt      = sel.options[sel.selectedIndex];
+    const maxStock = parseInt(opt.getAttribute('data-max')||1);
+    const codigo   = opt.getAttribute('data-codigo')||'';
+    const cantEl   = document.getElementById('inst-cantidad');
+    const badgeEl  = document.getElementById('inst-stock-badge');
+    const codWrap  = document.getElementById('inst-codigo-wrap');
+    const codVal   = document.getElementById('inst-codigo-val');
+
+    if (cantEl) { cantEl.max = maxStock; cantEl.value = 1; }
+    if (badgeEl) {
+        badgeEl.textContent = `Stock: ${maxStock}`;
+        badgeEl.style.display = 'inline-block';
+        badgeEl.style.background = maxStock > 0 ? 'rgba(0,230,118,.15)' : 'rgba(255,77,109,.15)';
+        badgeEl.style.color = maxStock > 0 ? '#00e676' : '#ff4d6d';
+        badgeEl.style.border = maxStock > 0 ? '1px solid rgba(0,230,118,.3)' : '1px solid rgba(255,77,109,.3)';
+    }
+    if (codWrap && codVal && codigo) {
+        codVal.textContent = codigo;
+        codWrap.classList.remove('hidden');
+    } else if (codWrap) {
+        codWrap.classList.add('hidden');
+    }
+    const errEl = document.getElementById('inst-cant-error');
+    if (errEl) errEl.style.display = 'none';
+}
+
+function validarCantidadInst(input) {
+    const max    = parseInt(input.max||1);
+    const val    = parseInt(input.value||0);
+    const errEl  = document.getElementById('inst-cant-error');
+    const btnEl  = document.getElementById('btn-guardar-inst');
+    const invalido = val > max || val < 1;
+    if (errEl) errEl.style.display = invalido ? 'block' : 'none';
+    if (btnEl) btnEl.disabled = invalido;
+}
+
+async function guardarInstalacion(e) {
+    e.preventDefault();
+
+    const ot       = document.getElementById('inst-ot').value.trim();
+    const itemId   = document.getElementById('inst-item').value;
+    const cantidad = parseInt(document.getElementById('inst-cantidad').value||1);
+    const destino  = document.getElementById('inst-destino').value.trim() || null;
+    const notas    = document.getElementById('inst-notas').value.trim()   || null;
+
+    if (!ot)     { alert('El número de OT es obligatorio.'); return; }
+    if (!itemId) { alert('Selecciona el material utilizado.'); return; }
+
+    const item = (window._misBodegaItems||[]).find(i => String(i.id) === String(itemId));
+    if (!item)   { alert('Artículo no encontrado.'); return; }
+
+    const maxStock = item.tipo_material === 'miscelaneo' ? (item.cantidad||1) : 1;
+    if (cantidad > maxStock) {
+        alert(`No puedes descargar ${cantidad} unidades. Solo tienes ${maxStock} en stock.`);
+        return;
+    }
+
+    const btn = document.getElementById('btn-guardar-inst');
+    if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
+
+    try {
+        // 1. Registrar en tabla servicios/salidas
+        const payload = {
+            bodega_id:    item.id,
+            numero_serie: item.serie || null,
+            modelo:       item.nombre || item.articulo || null,
+            cantidad,
+            motivo:       'instalación',
+            destino,
+            responsable:  currentUser.nombre_completo || currentUser.usuario,
+            cuadrilla:    currentUser.cuadrilla || null,
+            numero_ot:    ot,
+            estado_material: 'nuevo',
+            notas
+        };
+        const { error: errSal } = await window.supabase.from('salidas').insert(payload);
+        if (errSal) throw errSal;
+
+        // 2. Descontar stock en bodega
+        if (item.tipo_material === 'miscelaneo') {
+            const nuevoStock = (item.cantidad||1) - cantidad;
+            const nuevoEstado = nuevoStock <= 0 ? 'vendido' : 'disponible';
+            await window.supabase.from('bodega')
+                .update({ cantidad: Math.max(0, nuevoStock), estado: nuevoEstado })
+                .eq('id', item.id);
+        } else {
+            await window.supabase.from('bodega')
+                .update({ estado: 'vendido' })
+                .eq('id', item.id);
+        }
+
+        // 3. Actualizar caché local
+        window._misBodegaItems = null;
+
+        cerrarModal('modal-instalacion');
+        alert(`✅ Instalación OT ${ot} registrada correctamente.`);
+
+    } catch(err) {
+        alert('Error: ' + err.message);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '⚡ Guardar Instalación'; }
+    }
+}
 
 // ════════════════════════════════════════════════════════════
 //  TEMA CLARO / OSCURO

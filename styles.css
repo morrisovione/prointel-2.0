@@ -2101,3 +2101,38 @@ code.serie-code {
 [data-theme="light"] .theme-toggle:hover {
     background: #edf2f0;
 }
+
+/* ═══════════════════════════════════════════════
+   PERFIL TÉCNICO — Menú y módulo Instalaciones
+═══════════════════════════════════════════════ */
+
+/* Por defecto los botones de técnico están ocultos */
+.menu-tecnico-only { display: none !important; }
+
+/* Cuando el body tiene data-rol="tecnico" */
+[data-rol="tecnico"] .menu-tecnico-only { display: flex !important; }
+[data-rol="tecnico"] .menu-admin-only   { display: none  !important; }
+
+/* Botón INSTALACIONES — destacado en el menú */
+.btn-instalacion {
+    background: linear-gradient(135deg, rgba(0,200,240,0.15), rgba(0,200,240,0.05)) !important;
+    border: 1.5px solid var(--cyan) !important;
+    color: var(--cyan) !important;
+    font-weight: 700 !important;
+    letter-spacing: .04em;
+    margin-top: .4rem;
+}
+.btn-instalacion:hover {
+    background: rgba(0,200,240,0.25) !important;
+    box-shadow: 0 0 12px rgba(0,200,240,0.2);
+}
+
+/* Badge de stock en formulario instalación */
+#inst-stock-badge {
+    font-size: .68rem;
+    padding: .15rem .5rem;
+    border-radius: 20px;
+    margin-left: .4rem;
+    vertical-align: middle;
+    font-family: var(--font-mono);
+}
