@@ -2471,8 +2471,10 @@ async function cargarSalidas() {
         <div class="module-header">
             <h2>📤 Salida de Inventario</h2>
             <div class="header-actions">
-                <button class="btn-nav"  onclick="cargarSalidas()">↺ Actualizar</button>
-                <button class="btn-cyan" onclick="abrirModalSalida()">+ Registrar Salida</button>
+                <button class="btn-nav" onclick="cargarSalidas()">↺ Actualizar</button>
+                ${(currentUser?.rol||'').toLowerCase() !== 'tecnico'
+                    ? '<button class="btn-cyan" onclick="abrirModalSalida()">+ Registrar Salida</button>'
+                    : ''}
             </div>
         </div>
         <div class="inv-stats" id="sal-stats">
@@ -2511,8 +2513,19 @@ async function cargarSalidas() {
         <p class="table-count" id="sal-count"></p>`;
 
     try {
-        const { data, error } = await window.supabase
-            .from('salidas').select('*').order('created_at', { ascending: false });
+        // Técnico: solo ve sus propias salidas
+        // Admin/Bodega: ve todas
+        const esTecnico = (currentUser?.rol || '').toLowerCase() === 'tecnico';
+        let queryS = window.supabase.from('salidas').select('*');
+
+        if (esTecnico) {
+            const usuario = currentUser.nombre_completo || currentUser.usuario;
+            queryS = queryS.or(
+                `responsable.eq.${usuario},cuadrilla.eq.${currentUser.cuadrilla || usuario}`
+            );
+        }
+
+        const { data, error } = await queryS.order('created_at', { ascending: false });
         if (error) throw error;
         cacheSalidas = data || [];
         renderSalidas(cacheSalidas);
@@ -4104,8 +4117,8 @@ async function cargarMisArticulos() {
         <div class="table-wrap">
             <table class="data-table" id="tabla-mis-art">
                 <thead><tr>
-                    <th>#</th><th>ARTÍCULO</th><th>CÓDIGO</th>
-                    <th>SERIE</th><th>CANT.</th><th>ESTADO</th>
+                    <th>#</th><th>ARTÍCULO</th><th>SERIE</th>
+                    <th>ESTADO MAT.</th><th>FECHA RECEPCIÓN</th><th>COMPROBANTE</th>
                 </tr></thead>
                 <tbody id="mis-tbody">
                     <tr><td colspan="6" class="empty-row">⏳ Cargando tu stock…</td></tr>
@@ -4140,26 +4153,25 @@ async function cargarMisArticulos() {
         if (error) throw error;
 
         const items = data || [];
-        const disp  = items.filter(i => (i.estado||'').toLowerCase() === 'disponible').length;
-        const res   = items.filter(i => (i.estado||'').toLowerCase() === 'reservado').length;
+        const entregados = items.filter(i => (i.estado||'').toLowerCase() === 'entregado').length;
+        const enUso      = items.filter(i => ['reservado','en_uso'].includes((i.estado||'').toLowerCase())).length;
 
         document.getElementById('mis-stats').innerHTML = `
             <div class="istat">
                 <span class="istat-num">${items.length}</span>
-                <span class="istat-label">Mi stock total</span>
+                <span class="istat-label">Total en mi cargo</span>
             </div>
-            <div class="istat istat-green">
-                <span class="istat-num">${disp}</span>
-                <span class="istat-label">Disponibles</span>
+            <div class="istat istat-cyan">
+                <span class="istat-num">${entregados}</span>
+                <span class="istat-label">Entregados</span>
             </div>
             <div class="istat istat-blue">
-                <span class="istat-num">${res}</span>
-                <span class="istat-label">En uso</span>
+                <span class="istat-num">${enUso}</span>
+                <span class="istat-label">Reservados / En uso</span>
             </div>`;
 
         // Guardar en caché para formulario de instalaciones
         window._misBodegaItems = items;
-
         const tbody = document.getElementById('mis-tbody');
         const count = document.getElementById('mis-count');
 
@@ -4169,21 +4181,34 @@ async function cargarMisArticulos() {
             return;
         }
 
-        tbody.innerHTML = items.map((item, idx) => `
-            <tr>
+        // Para cada artículo buscar su salida asociada (para el comprobante)
+        // Guardamos los IDs de bodega para vincular con cacheSalidas
+        tbody.innerHTML = items.map((item, idx) => {
+            // Buscar la salida relacionada por bodega_id o serie
+            const salidaRel = cacheSalidas.find(s =>
+                (s.bodega_id && s.bodega_id === item.id) ||
+                (s.numero_serie && s.numero_serie === item.serie)
+            );
+            const fechaRec = item.fecha_ingreso || item.updated_at || item.created_at;
+            const estadoBadge = (item.estado||'').toLowerCase();
+            return `<tr>
                 <td class="row-num">${idx + 1}</td>
                 <td class="td-bold">${esc(item.nombre || item.articulo || '—')}</td>
-                <td><span class="sku-code">${esc(item.codigo || '—')}</span></td>
                 <td>${item.serie
                     ? `<code class="serie-code">${esc(item.serie)}</code>`
                     : '<span class="td-date">—</span>'}</td>
-                <td style="text-align:center;font-family:var(--font-mono)">
-                    ${item.tipo_material === 'miscelaneo' ? (item.cantidad || 1) : 1}
-                </td>
-                <td><span class="badge badge-${(item.estado||'disponible').toLowerCase()}">
-                    ${esc(item.estado || 'disponible')}
+                <td><span class="badge badge-${estadoBadge === 'entregado' ? 'reservado' : estadoBadge}">
+                    ${esc(item.estado || '—')}
                 </span></td>
-            </tr>`).join('');
+                <td class="td-date">${formatFecha(fechaRec)}</td>
+                <td>${salidaRel
+                    ? `<button class="act-btn act-edit"
+                            onclick="verComprobanteTecnico('${salidaRel.id}')">
+                            📄 Comprobante
+                       </button>`
+                    : '<span class="td-date">—</span>'}</td>
+            </tr>`;
+        }).join('');
 
         if (count) count.textContent = `${items.length} artículo${items.length !== 1 ? 's' : ''} en tu cargo`;
 
@@ -4193,6 +4218,38 @@ async function cargarMisArticulos() {
             `<tr><td colspan="6" class="empty-row error-msg">❌ ${err.message}</td></tr>`;
     }
 }
+
+// ════════════════════════════════════════════════════════════
+//  COMPROBANTE DE DESPACHO — Vista técnico
+// ════════════════════════════════════════════════════════════
+
+function verComprobanteTecnico(salidaId) {
+    const s = cacheSalidas.find(x => x.id === salidaId);
+    if (!s) { alert('No se encontró el registro de salida.'); return; }
+
+    const fecha = s.created_at
+        ? new Date(s.created_at).toLocaleDateString('es-SV', {
+            weekday:'long', day:'2-digit', month:'long', year:'numeric'
+          })
+        : '—';
+
+    const firmaHTML = s.firma_base64
+        ? `<div style="margin-top:1.5rem"><div style="font-size:.68rem;font-weight:700;letter-spacing:.1em;color:#636e72;text-transform:uppercase;margin-bottom:.4rem">Firma de recibido</div><img src="${s.firma_base64}" style="border:1px solid #dfe6e9;border-radius:4px;max-width:220px;height:80px;object-fit:contain;background:#fff;display:block" /></div>`
+        : `<div style="margin-top:1.5rem;padding-top:.8rem"><div style="font-size:.68rem;font-weight:700;letter-spacing:.1em;color:#636e72;text-transform:uppercase;margin-bottom:.6rem">Firma de recibido</div><div style="width:220px;border-bottom:1px solid #aaa;height:50px"></div></div>`;
+
+    const win = window.open('','_blank','width=820,height=700');
+    win.document.write('<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Comprobante ' + esc(s.numero_ot||'') + '</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Segoe UI,Arial,sans-serif;background:#fff;color:#111;padding:2.5rem;max-width:760px;margin:0 auto}.hdr{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:1.2rem;border-bottom:3px solid #00c8f0;margin-bottom:1.5rem}.brand{font-size:2rem;font-weight:900;color:#0d1520}.brand span{color:#00c8f0}.brand-sub{font-size:.72rem;color:#636e72;margin-top:.2rem}.doc-tipo{font-size:.62rem;font-weight:700;letter-spacing:.14em;color:#fff;background:#0d1520;padding:.3rem .8rem;border-radius:20px;text-transform:uppercase;display:inline-block;margin-bottom:.4rem}.doc-ot{font-size:1.2rem;font-weight:800;font-family:Courier New,monospace;color:#0d1520}.doc-fecha{font-size:.78rem;color:#636e72;margin-top:.2rem}.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:.8rem;margin-bottom:1.4rem}.info-card{background:#f8fafb;border-left:3px solid #00c8f0;border-radius:0 5px 5px 0;padding:.7rem .9rem}.desp-card{background:#fff8e7;border-left:3px solid #f39c12;border-radius:0 5px 5px 0;padding:.7rem .9rem;margin-bottom:1.4rem}.info-label{font-size:.62rem;font-weight:700;letter-spacing:.12em;color:#636e72;text-transform:uppercase;margin-bottom:.25rem}.info-val{font-size:.92rem;font-weight:600;color:#0d1520}.info-sub{font-size:.75rem;color:#636e72;margin-top:.1rem}table{width:100%;border-collapse:collapse;margin-bottom:1rem}thead tr{background:#0d1520;color:#fff}th{padding:.6rem .9rem;font-size:.76rem;font-weight:600;letter-spacing:.04em;text-align:left}td{padding:.6rem .9rem;font-size:.85rem;border-bottom:1px solid #edf2f0;color:#2d3436}tbody tr:nth-child(even){background:#f8fafb}.footer{margin-top:2rem;padding-top:.8rem;border-top:1px solid #edf2f0;display:flex;justify-content:space-between;font-size:.7rem;color:#b2bec3}.print-btn{display:block;margin:1.5rem auto 0;padding:.7rem 2rem;background:#00c8f0;color:#000;border:none;border-radius:6px;font-size:1rem;font-weight:700;cursor:pointer}@media print{.print-btn{display:none}body{padding:1rem}}</style></head><body>');
+    win.document.write('<div class="hdr"><div><div class="brand">PRO<span>INTEL</span></div><div class="brand-sub">Comprobante de Despacho de Material</div></div><div style="text-align:right"><div class="doc-tipo">Vale de Salida</div><div class="doc-ot">' + esc(s.numero_ot||'Sin OT') + '</div><div class="doc-fecha">' + fecha + '</div></div></div>');
+    win.document.write('<div class="info-grid"><div class="info-card"><div class="info-label">Técnico que recibe</div><div class="info-val">' + esc(s.responsable||'—') + '</div>' + (s.cuadrilla ? '<div class="info-sub">Cuadrilla: <strong>' + esc(s.cuadrilla) + '</strong></div>' : '') + '</div><div class="info-card"><div class="info-label">Motivo / Destino</div><div class="info-val" style="text-transform:capitalize">' + esc(s.motivo||'—') + '</div>' + (s.destino ? '<div class="info-sub">' + esc(s.destino) + '</div>' : '') + '</div></div>');
+    win.document.write('<div class="desp-card"><div class="info-label">Despachado por (Operador de Bodega)</div><div class="info-val">' + esc(s.despachado_por || s.operador || 'Bodega Central — PROINTEL') + '</div></div>');
+    win.document.write('<table><thead><tr><th>Artículo / Material</th><th style="text-align:center;width:180px">Serie / Cantidad</th><th style="text-align:center;width:110px">Estado material</th></tr></thead><tbody><tr><td>' + esc(s.modelo||s.nombre_articulo||'—') + '</td><td style="text-align:center">' + (s.numero_serie ? '<code style="font-family:Courier New,monospace;background:#f0f4f8;padding:.2rem .5rem;border-radius:3px">' + esc(s.numero_serie) + '</code>' : (s.cantidad||1) + ' unidad(es)') + '</td><td style="text-align:center;text-transform:capitalize">' + esc(s.estado_material||'—') + '</td></tr></tbody></table>');
+    if (s.notas) win.document.write('<div style="background:#f8fafb;border-radius:5px;border-left:3px solid #dfe6e9;padding:.7rem .9rem;font-size:.8rem;color:#636e72;margin-bottom:1rem"><strong>Notas:</strong> ' + esc(s.notas) + '</div>');
+    win.document.write(firmaHTML);
+    win.document.write('<div class="footer"><span>PROINTEL 2.0 — Comprobante de Despacho</span><span>Impreso el ' + new Date().toLocaleDateString('es-SV') + '</span></div>');
+    win.document.write('<button class="print-btn" onclick="window.print()">\uD83D\uDDB6 Imprimir / Guardar PDF</button></body></html>');
+    win.document.close();
+}
+
 
 // ════════════════════════════════════════════════════════════
 //  INSTALACIONES — Formulario de descarga de material
