@@ -1903,7 +1903,7 @@ function _aplicarCodigoHistorico(codigo, codigoEl, statusEl, originEl, fuente) {
 }
 
 // ── Lógica de cuadrilla inteligente ──────────────────────
-const CUADRILLAS_FIJAS = ['PRI1','PRI2','PRI3','PRI4'];
+const CUADRILLAS_FIJAS = ['PRI01','PRI02','PRI03','PRI04','PRI05'];
 
 function onCuadrillaChange(sel) {
     const manualEl = document.getElementById('art-cuadrilla-manual');
@@ -2837,8 +2837,8 @@ async function cargarUsuarios() {
         </div>
         <div class="table-wrap">
             <table class="data-table" id="tabla-usuarios">
-                <thead><tr><th>#</th><th>USUARIO</th><th>NOMBRE COMPLETO</th><th>ROL</th><th>ESTADO</th><th>CREADO</th><th>ACCIONES</th></tr></thead>
-                <tbody><tr><td colspan="7" class="empty-row">⏳ Cargando...</td></tr></tbody>
+                <thead><tr><th>#</th><th>USUARIO</th><th>NOMBRE COMPLETO</th><th>ROL</th><th>CUADRILLA</th><th>ESTADO</th><th>ACCIONES</th></tr></thead>
+                <tbody><tr><td colspan="8" class="empty-row">⏳ Cargando...</td></tr></tbody>
             </table>
         </div>
         <p class="table-count" id="usr-count"></p>`;
@@ -2856,7 +2856,7 @@ async function cargarUsuarios() {
             <div class="istat istat-cyan"><span class="istat-num">${adm}</span><span class="istat-label">Administradores</span></div>`;
 
         const tbody = document.querySelector('#tabla-usuarios tbody');
-        if (!cacheUsuarios.length) { tbody.innerHTML = '<tr><td colspan="7" class="empty-row">No hay usuarios.</td></tr>'; return; }
+        if (!cacheUsuarios.length) { tbody.innerHTML = '<tr><td colspan="8" class="empty-row">No hay usuarios.</td></tr>'; return; }
         tbody.innerHTML = cacheUsuarios.map((u, idx) => {
             const esSU = esSuperusuario(u.usuario);
             const _rol = (u.rol||'bodega').toLowerCase();
@@ -2871,20 +2871,23 @@ async function cargarUsuarios() {
                     <button class="act-btn act-edit" onclick="abrirModalUsuario('${u.id}')">✎ Editar</button>
                     <button class="act-btn act-del"  onclick="eliminarUsuario('${esc(u.usuario)}','${u.id}')">✕</button>
                    </div>`;
+            const cuadBadge = u.cuadrilla
+                ? `<span class="tipo-badge tipo-seriado" style="font-size:.68rem">${esc(u.cuadrilla.toUpperCase())}</span>`
+                : `<span style="color:var(--muted);font-size:.78rem">—</span>`;
             return `<tr ${esSU?'class="su-row"':''}>
                 <td class="row-num">${idx+1}</td>
                 <td><code>${esc(u.usuario)}</code>${esSU?' <span style="color:#ffb300">★</span>':''}</td>
                 <td class="td-bold">${esc(u.nombre_completo||u.nombre||'—')}</td>
                 <td>${rolB}</td>
+                <td>${cuadBadge}</td>
                 <td><span class="badge badge-${(u.estado||'activo').toLowerCase()}">${esc(u.estado||'activo')}</span></td>
-                <td class="td-date">${formatFecha(u.created_at)}</td>
                 <td>${acc}</td>
             </tr>`;
         }).join('');
         const count = document.getElementById('usr-count');
         if (count) count.textContent = cacheUsuarios.length + ' usuarios';
     } catch(err) {
-        document.querySelector('#tabla-usuarios tbody').innerHTML = `<tr><td colspan="7" class="empty-row error-msg">❌ ${err.message}</td></tr>`;
+        document.querySelector('#tabla-usuarios tbody').innerHTML = `<tr><td colspan="8" class="empty-row error-msg">❌ ${err.message}</td></tr>`;
     }
 }
 
@@ -2902,6 +2905,15 @@ function abrirModalUsuario(id) {
         `<option value="${r.value}" ${rolActual === r.value ? 'selected' : ''}>${r.label} — ${r.desc}</option>`
     ).join('');
 
+    // Cuadrillas predefinidas en formato PRI01-PRI05
+    const CUADS_FIJAS = ['PRI01','PRI02','PRI03','PRI04','PRI05'];
+    const cuadActual  = (u?.cuadrilla || '').toUpperCase();
+    const esManual    = cuadActual && !CUADS_FIJAS.includes(cuadActual);
+
+    const optsCuad = CUADS_FIJAS.map(q =>
+        `<option value="${q}" ${cuadActual === q ? 'selected' : ''}>${q}</option>`
+    ).join('');
+
     document.body.insertAdjacentHTML('beforeend', `
         <div class="modal-overlay" id="modal-usuario" onclick="cerrarModalClick(event,'modal-usuario')">
             <div class="modal-content">
@@ -2912,7 +2924,6 @@ function abrirModalUsuario(id) {
                 <form id="form-usuario" onsubmit="guardarUsuario(event,'${id||''}')">
                     <div class="form-grid">
 
-                        <!-- 1. Nombre Completo (fila entera) -->
                         <div class="field field-full">
                             <label>NOMBRE COMPLETO *</label>
                             <input type="text" id="usr-nombre"
@@ -2920,7 +2931,6 @@ function abrirModalUsuario(id) {
                                 required placeholder="Juan Pérez" />
                         </div>
 
-                        <!-- 2. Usuario y Contraseña (misma fila) -->
                         <div class="field">
                             <label>USUARIO *</label>
                             <input type="text" id="usr-login"
@@ -2935,7 +2945,6 @@ function abrirModalUsuario(id) {
                                 ${u ? '' : 'required'} />
                         </div>
 
-                        <!-- 3. Rol y Estado (misma fila) -->
                         <div class="field">
                             <label>ROL</label>
                             <select id="usr-rol">${optsRol}</select>
@@ -2948,14 +2957,48 @@ function abrirModalUsuario(id) {
                             </select>
                         </div>
 
+                        <!-- Cuadrilla — selector híbrido -->
+                        <div class="field field-full">
+                            <label>CÓDIGO DE CUADRILLA / TÉCNICO</label>
+                            <div class="cuad-wrap">
+                                <select id="usr-cuadrilla-sel"
+                                    onchange="onUsrCuadrillaChange(this)">
+                                    <option value="">— Sin asignar —</option>
+                                    ${optsCuad}
+                                    <option value="__manual__" ${esManual ? 'selected' : ''}>
+                                        ✏️ Ingreso Manual
+                                    </option>
+                                </select>
+                                <input type="text" id="usr-cuadrilla-manual"
+                                    placeholder="Ej: EXT01, TEMP01…"
+                                    value="${esManual ? esc(cuadActual) : ''}"
+                                    class="${esManual ? '' : 'hidden'}"
+                                    oninput="this.value = this.value.toUpperCase()"
+                                    style="text-transform:uppercase;font-family:var(--font-mono)" />
+                            </div>
+                        </div>
+
                     </div>
                     <div class="modal-foot">
-                        <button type="button" class="btn-ghost-sm" onclick="cerrarModal('modal-usuario')">Cancelar</button>
+                        <button type="button" class="btn-ghost-sm"
+                            onclick="cerrarModal('modal-usuario')">Cancelar</button>
                         <button type="submit" class="btn-cyan">Guardar Usuario</button>
                     </div>
                 </form>
             </div>
         </div>`);
+}
+
+function onUsrCuadrillaChange(sel) {
+    const manual = document.getElementById('usr-cuadrilla-manual');
+    if (!manual) return;
+    if (sel.value === '__manual__') {
+        manual.classList.remove('hidden');
+        manual.focus();
+    } else {
+        manual.classList.add('hidden');
+        manual.value = '';
+    }
 }
 
 async function guardarUsuario(e, id) {
@@ -2972,12 +3015,20 @@ async function guardarUsuario(e, id) {
     if (!usuario)         { alert('El usuario es obligatorio.'); return; }
     if (!id && !clave)    { alert('La contraseña es obligatoria para nuevos usuarios.'); return; }
 
-    // Payload coincide exactamente con columnas de tabla `usuarios`
+    // Leer cuadrilla — prioriza manual, siempre en MAYÚSCULAS
+    const cuadSel    = document.getElementById('usr-cuadrilla-sel')?.value || '';
+    const cuadManual = (document.getElementById('usr-cuadrilla-manual')?.value || '').trim().toUpperCase();
+    const cuadrilla  = cuadSel === '__manual__'
+        ? (cuadManual || null)
+        : (cuadSel || null);
+
+    // Payload
     const payload = {
         usuario,
         nombre_completo,
         rol,
-        estado
+        estado,
+        cuadrilla
     };
     // Hashear contraseña SHA-256 antes de guardar
     if (clave) payload.clave = await hashPassword(clave.trim());
