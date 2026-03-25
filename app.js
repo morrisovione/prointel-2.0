@@ -2501,10 +2501,10 @@ async function cargarSalidas() {
                 <thead><tr>
                     <th>#</th><th>OT / TICKET</th><th>ARTÍCULO</th>
                     <th>SERIE / CANT.</th><th>MOTIVO</th><th>TÉCNICO</th>
-                    <th>ESTADO MAT.</th><th>FECHA</th>
+                    <th>ESTADO MAT.</th><th>FECHA</th><th>ACCIONES</th>
                 </tr></thead>
                 <tbody id="sal-tbody">
-                    <tr><td colspan="8" class="empty-row">⏳ Cargando salidas…</td></tr>
+                    <tr><td colspan="9" class="empty-row">⏳ Cargando salidas…</td></tr>
                 </tbody>
             </table>
         </div>
@@ -2538,7 +2538,7 @@ function renderSalidas(filas) {
     const tbody = document.getElementById('sal-tbody');
     const count = document.getElementById('sal-count');
     if (!filas || !filas.length) {
-        tbody.innerHTML = '<tr><td colspan="8" class="empty-row">No hay salidas registradas.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="empty-row">No hay salidas registradas.</td></tr>';
         if (count) count.textContent = ''; return;
     }
     tbody.innerHTML = filas.map((s, idx) => `
@@ -2559,8 +2559,197 @@ function renderSalidas(filas) {
                     : '—'}
             </td>
             <td class="td-date">${formatFecha(s.created_at)}</td>
+            <td>
+                <button class="act-btn act-edit"
+                    onclick="verFacturaSalida('${s.id}')">👁 Ver</button>
+            </td>
         </tr>`).join('');
     if (count) count.textContent = filas.length + ' registros';
+}
+
+// ── Vale de Salida — visor e impresión ───────────────────
+function verFacturaSalida(id) {
+    const s = cacheSalidas.find(x => x.id === id);
+    if (!s) return;
+
+    const win = window.open('', '_blank', 'width=820,height=700');
+    const fecha = s.created_at
+        ? new Date(s.created_at).toLocaleDateString('es-SV', {
+            weekday:'long', day:'2-digit', month:'long', year:'numeric'
+          })
+        : '—';
+
+    const materialHTML = `
+        <tr>
+            <td>${esc(s.modelo || s.nombre_articulo || '—')}</td>
+            <td style="text-align:center">${
+                s.numero_serie
+                    ? `<code style="font-family:'Courier New',monospace;
+                               background:#f0f4f8;padding:.2rem .5rem;
+                               border-radius:3px;font-size:.85rem">
+                               ${esc(s.numero_serie)}</code>`
+                    : `${s.cantidad||1} unidad(es)`
+            }</td>
+            <td style="text-align:center">${esc(s.estado_material || '—')}</td>
+        </tr>`;
+
+    const firmaHTML = s.firma_base64
+        ? `<div style="margin-top:1.5rem">
+               <div style="font-size:.72rem;font-weight:700;letter-spacing:.1em;
+                           color:#636e72;text-transform:uppercase;margin-bottom:.5rem">
+                   Firma de recibido
+               </div>
+               <img src="${s.firma_base64}"
+                    style="border:1px solid #dfe6e9;border-radius:4px;
+                           max-width:200px;height:80px;object-fit:contain;
+                           background:#fff;display:block" />
+           </div>`
+        : `<div style="margin-top:1.5rem;border-top:1px solid #dfe6e9;padding-top:.6rem">
+               <div style="font-size:.72rem;font-weight:700;letter-spacing:.1em;
+                           color:#636e72;text-transform:uppercase">
+                   Firma de recibido
+               </div>
+               <div style="height:60px;border-bottom:1px solid #aaa;
+                           margin-top:.8rem;width:220px"></div>
+           </div>`;
+
+    win.document.write(`<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Vale de Salida ${esc(s.numero_ot || s.id?.slice(0,8)||'')} — PROINTEL</title>
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: #fff; color: #111;
+            padding: 2.5rem; max-width: 760px; margin: 0 auto;
+        }
+        .doc-header {
+            display: flex; justify-content: space-between;
+            align-items: flex-start; padding-bottom: 1.2rem;
+            border-bottom: 3px solid #00c8f0; margin-bottom: 1.5rem;
+        }
+        .doc-brand {
+            font-size: 2rem; font-weight: 900;
+            letter-spacing: -.01em; color: #0d1520;
+        }
+        .doc-brand span { color: #00c8f0; }
+        .doc-brand-sub  { font-size: .72rem; color: #636e72; margin-top:.2rem; }
+        .doc-tipo {
+            font-size: .65rem; font-weight: 700; letter-spacing: .14em;
+            color: #fff; background: #0d1520; padding: .3rem .8rem;
+            border-radius: 20px; text-transform: uppercase; margin-bottom: .4rem;
+            display: inline-block;
+        }
+        .doc-ot {
+            font-size: 1.2rem; font-weight: 800;
+            font-family: 'Courier New', monospace; color: #0d1520;
+        }
+        .doc-fecha { font-size: .78rem; color: #636e72; margin-top: .2rem; }
+        .info-grid {
+            display: grid; grid-template-columns: 1fr 1fr;
+            gap: .8rem; margin-bottom: 1.4rem;
+        }
+        .info-card {
+            background: #f8fafb; border-left: 3px solid #00c8f0;
+            border-radius: 0 5px 5px 0; padding: .7rem .9rem;
+        }
+        .info-label {
+            font-size: .62rem; font-weight: 700; letter-spacing: .12em;
+            color: #636e72; text-transform: uppercase; margin-bottom: .2rem;
+        }
+        .info-val { font-size: .92rem; font-weight: 600; color: #0d1520; }
+        .info-sub { font-size: .75rem; color: #636e72; margin-top: .1rem; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
+        thead tr { background: #0d1520; color: #fff; }
+        th {
+            padding: .6rem .9rem; font-size: .76rem;
+            font-weight: 600; letter-spacing: .04em; text-align: left;
+        }
+        td { padding: .6rem .9rem; font-size: .85rem;
+             border-bottom: 1px solid #edf2f0; color: #2d3436; }
+        tbody tr:nth-child(even) { background: #f8fafb; }
+        .doc-footer {
+            margin-top: 2rem; padding-top: .8rem;
+            border-top: 1px solid #edf2f0;
+            display: flex; justify-content: space-between;
+            font-size: .7rem; color: #b2bec3;
+        }
+        .notas-box {
+            background: #f8fafb; border-radius: 5px;
+            border-left: 3px solid #dfe6e9;
+            padding: .7rem .9rem; font-size: .8rem;
+            color: #636e72; margin-bottom: 1rem;
+        }
+        .print-btn {
+            display: block; margin: 1.5rem auto 0;
+            padding: .7rem 2rem; background: #00c8f0;
+            color: #000; border: none; border-radius: 6px;
+            font-size: 1rem; font-weight: 700; cursor: pointer;
+        }
+        @media print {
+            .print-btn { display: none; }
+            body { padding: 1rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="doc-header">
+        <div>
+            <div class="doc-brand">PRO<span>INTEL</span></div>
+            <div class="doc-brand-sub">Sistema de Gestión Residencial</div>
+        </div>
+        <div style="text-align:right">
+            <div class="doc-tipo">Vale de Salida</div>
+            <div class="doc-ot">${esc(s.numero_ot || '— Sin OT —')}</div>
+            <div class="doc-fecha">${fecha}</div>
+        </div>
+    </div>
+
+    <div class="info-grid">
+        <div class="info-card">
+            <div class="info-label">Técnico responsable</div>
+            <div class="info-val">${esc(s.responsable || '—')}</div>
+            ${s.cuadrilla ? `<div class="info-sub">Cuadrilla: ${esc(s.cuadrilla)}</div>` : ''}
+        </div>
+        <div class="info-card">
+            <div class="info-label">Motivo / Destino</div>
+            <div class="info-val" style="text-transform:capitalize">
+                ${esc(s.motivo || '—')}
+            </div>
+            ${s.destino ? `<div class="info-sub">${esc(s.destino)}</div>` : ''}
+        </div>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Material / Artículo</th>
+                <th style="text-align:center;width:180px">Serie / Cantidad</th>
+                <th style="text-align:center;width:110px">Estado</th>
+            </tr>
+        </thead>
+        <tbody>${materialHTML}</tbody>
+    </table>
+
+    ${s.notas ? `<div class="notas-box"><strong>Notas:</strong> ${esc(s.notas)}</div>` : ''}
+
+    ${firmaHTML}
+
+    <div class="doc-footer">
+        <span>PROINTEL 2.0 — Sistema de Gestión Residencial</span>
+        <span>Impreso el ${new Date().toLocaleDateString('es-SV')}</span>
+    </div>
+
+    <button class="print-btn" onclick="window.print()">
+        🖨 Imprimir / Guardar PDF
+    </button>
+
+</body>
+</html>`);
+    win.document.close();
 }
 
 function filtrarSalidasLive() {
