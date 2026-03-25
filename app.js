@@ -4170,117 +4170,205 @@ async function cargarMisArticulos() {
             <div class="istat loading-placeholder"></div>
             <div class="istat loading-placeholder"></div>
         </div>
-        <div class="inv-toolbar">
-            <div class="search-bar" style="flex:1">
-                <input type="text" id="mis-search"
-                    placeholder="🔍  Buscar en mi stock…"
-                    oninput="filtrarTabla('mis-search','tabla-mis-art')" />
+
+        <!-- Pestañas internas -->
+        <div class="mi-bodega-tabs">
+            <button class="mb-tab mb-tab-active" id="tab-stock"
+                onclick="switchMiBodegaTab('stock')">
+                📦 Stock Actual
+            </button>
+            <button class="mb-tab" id="tab-historial"
+                onclick="switchMiBodegaTab('historial')">
+                📋 Historial de Entregas
+            </button>
+        </div>
+
+        <!-- Panel: Stock Actual -->
+        <div id="panel-stock" class="mb-panel">
+            <div class="inv-toolbar">
+                <div class="search-bar" style="flex:1">
+                    <input type="text" id="mis-search"
+                        placeholder="🔍  Buscar en mi stock…"
+                        oninput="filtrarTabla('mis-search','tabla-mis-art')" />
+                </div>
             </div>
+            <div class="table-wrap">
+                <table class="data-table" id="tabla-mis-art">
+                    <thead><tr>
+                        <th>#</th><th>ARTÍCULO</th><th>SERIE</th>
+                        <th>ESTADO</th><th>FECHA RECEPCIÓN</th><th>COMPROBANTE</th>
+                    </tr></thead>
+                    <tbody id="mis-tbody">
+                        <tr><td colspan="6" class="empty-row">⏳ Cargando…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <p class="table-count" id="mis-count"></p>
         </div>
-        <div class="table-wrap">
-            <table class="data-table" id="tabla-mis-art">
-                <thead><tr>
-                    <th>#</th><th>ARTÍCULO</th><th>SERIE</th>
-                    <th>ESTADO MAT.</th><th>FECHA RECEPCIÓN</th><th>COMPROBANTE</th>
-                </tr></thead>
-                <tbody id="mis-tbody">
-                    <tr><td colspan="6" class="empty-row">⏳ Cargando tu stock…</td></tr>
-                </tbody>
-            </table>
-        </div>
-        <p class="table-count" id="mis-count"></p>`;
+
+        <!-- Panel: Historial de Entregas -->
+        <div id="panel-historial" class="mb-panel hidden">
+            <div class="inv-toolbar">
+                <div class="search-bar" style="flex:1">
+                    <input type="text" id="hist-search"
+                        placeholder="🔍  Buscar por OT, artículo, fecha…"
+                        oninput="filtrarTabla('hist-search','tabla-historial')" />
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table class="data-table" id="tabla-historial">
+                    <thead><tr>
+                        <th>#</th><th>OT / TICKET</th><th>ARTÍCULO</th>
+                        <th>SERIE</th><th>MOTIVO</th><th>FECHA</th><th>COMPROBANTE</th>
+                    </tr></thead>
+                    <tbody id="hist-tbody">
+                        <tr><td colspan="7" class="empty-row">⏳ Cargando historial…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <p class="table-count" id="hist-count"></p>
+        </div>`;
+
+    // Cargar ambas secciones en paralelo
+    const usuario   = currentUser.usuario || '';
+    const nombre    = currentUser.nombre_completo || currentUser.usuario || '';
+    const cuadrilla = currentUser.cuadrilla || '';
 
     try {
-        // Filtro estricto: solo artículos asignados a este técnico
-        const usuario   = currentUser.usuario || '';
-        const cuadrilla = currentUser.cuadrilla || '';
+        const [resStock, resSalidas] = await Promise.all([
+            // Stock actual: artículos asignados al técnico
+            (() => {
+                let q = window.supabase.from('bodega').select('*').neq('estado','vendido');
+                if (cuadrilla) {
+                    q = q.eq('cuadrilla', cuadrilla);
+                } else {
+                    q = q.or(`asignado_a.eq.${usuario},responsable.eq.${usuario}`);
+                }
+                return q.order('fecha_ingreso', { ascending: false });
+            })(),
+            // Historial: salidas donde él es el responsable
+            window.supabase
+                .from('salidas')
+                .select('*')
+                .or(`responsable.eq.${nombre},responsable.eq.${usuario},cuadrilla.eq.${cuadrilla||usuario}`)
+                .order('created_at', { ascending: false })
+        ]);
 
-        let query = window.supabase
-            .from('bodega')
-            .select('*')
-            .neq('estado', 'vendido');
+        const items    = resStock.data   || [];
+        const salidas  = resSalidas.data || [];
 
-        // Filtro: artículos asignados a este técnico por cualquiera de las columnas
-        // Si el técnico tiene cuadrilla, prioriza ese campo (más confiable)
-        if (cuadrilla) {
-            // Cuadrilla es el campo clave — guardarSalida lo escribe al despachar
-            query = query.eq('cuadrilla', cuadrilla);
-        } else {
-            // Sin cuadrilla: buscar por usuario en asignado_a o responsable
-            query = query.or(
-                `asignado_a.eq.${usuario},responsable.eq.${usuario}`
-            );
-        }
+        // Actualizar caché
+        window._misBodegaItems = items;
 
-        const { data, error } = await query.order('fecha_ingreso', { ascending: false });
-        if (error) throw error;
-
-        const items = data || [];
+        // ── Stats ──────────────────────────────────────────────
         const entregados = items.filter(i => (i.estado||'').toLowerCase() === 'entregado').length;
-        const enUso      = items.filter(i => ['reservado','en_uso'].includes((i.estado||'').toLowerCase())).length;
+        const total      = items.length;
+        const totalHist  = salidas.length;
 
         document.getElementById('mis-stats').innerHTML = `
             <div class="istat">
-                <span class="istat-num">${items.length}</span>
-                <span class="istat-label">Total en mi cargo</span>
+                <span class="istat-num">${total}</span>
+                <span class="istat-label">En mi cargo</span>
             </div>
             <div class="istat istat-cyan">
                 <span class="istat-num">${entregados}</span>
                 <span class="istat-label">Entregados</span>
             </div>
             <div class="istat istat-blue">
-                <span class="istat-num">${enUso}</span>
-                <span class="istat-label">Reservados / En uso</span>
+                <span class="istat-num">${totalHist}</span>
+                <span class="istat-label">Recepciones totales</span>
             </div>`;
 
-        // Guardar en caché para formulario de instalaciones
-        window._misBodegaItems = items;
+        // ── Panel Stock Actual ────────────────────────────────
         const tbody = document.getElementById('mis-tbody');
         const count = document.getElementById('mis-count');
 
         if (!items.length) {
-            tbody.innerHTML = '<tr><td colspan="6" class="empty-row">No tienes artículos asignados aún. Contacta a bodega central.</td></tr>';
-            if (count) count.textContent = '';
-            return;
+            tbody.innerHTML = '<tr><td colspan="6" class="empty-row">No tienes artículos asignados. Contacta a bodega central.</td></tr>';
+        } else {
+            tbody.innerHTML = items.map((item, idx) => {
+                const salidaRel = salidas.find(s =>
+                    (s.bodega_id && s.bodega_id === item.id) ||
+                    (s.numero_serie && s.numero_serie === item.serie)
+                );
+                const fechaRec    = item.fecha_ingreso || item.updated_at || item.created_at;
+                const estadoBadge = (item.estado||'').toLowerCase();
+                return `<tr>
+                    <td class="row-num">${idx + 1}</td>
+                    <td class="td-bold">${esc(item.nombre || item.articulo || '—')}</td>
+                    <td>${item.serie
+                        ? `<code class="serie-code">${esc(item.serie)}</code>`
+                        : '<span class="td-date">—</span>'}</td>
+                    <td><span class="badge badge-${estadoBadge === 'entregado' ? 'reservado' : estadoBadge}">
+                        ${esc(item.estado || '—')}
+                    </span></td>
+                    <td class="td-date">${formatFecha(fechaRec)}</td>
+                    <td>${salidaRel
+                        ? `<button class="act-btn act-edit"
+                                onclick="verComprobanteTecnico('${salidaRel.id}')">
+                                📄 Ver
+                           </button>`
+                        : '<span class="td-date">—</span>'}</td>
+                </tr>`;
+            }).join('');
         }
-
-        // Para cada artículo buscar su salida asociada (para el comprobante)
-        // Guardamos los IDs de bodega para vincular con cacheSalidas
-        tbody.innerHTML = items.map((item, idx) => {
-            // Buscar la salida relacionada por bodega_id o serie
-            const salidaRel = cacheSalidas.find(s =>
-                (s.bodega_id && s.bodega_id === item.id) ||
-                (s.numero_serie && s.numero_serie === item.serie)
-            );
-            const fechaRec = item.fecha_ingreso || item.updated_at || item.created_at;
-            const estadoBadge = (item.estado||'').toLowerCase();
-            return `<tr>
-                <td class="row-num">${idx + 1}</td>
-                <td class="td-bold">${esc(item.nombre || item.articulo || '—')}</td>
-                <td>${item.serie
-                    ? `<code class="serie-code">${esc(item.serie)}</code>`
-                    : '<span class="td-date">—</span>'}</td>
-                <td><span class="badge badge-${estadoBadge === 'entregado' ? 'reservado' : estadoBadge}">
-                    ${esc(item.estado || '—')}
-                </span></td>
-                <td class="td-date">${formatFecha(fechaRec)}</td>
-                <td>${salidaRel
-                    ? `<button class="act-btn act-edit"
-                            onclick="verComprobanteTecnico('${salidaRel.id}')">
-                            📄 Comprobante
-                       </button>`
-                    : '<span class="td-date">—</span>'}</td>
-            </tr>`;
-        }).join('');
-
         if (count) count.textContent = `${items.length} artículo${items.length !== 1 ? 's' : ''} en tu cargo`;
 
+        // ── Panel Historial de Entregas ───────────────────────
+        const histTbody = document.getElementById('hist-tbody');
+        const histCount = document.getElementById('hist-count');
+
+        if (!salidas.length) {
+            histTbody.innerHTML = '<tr><td colspan="7" class="empty-row">No tienes entregas registradas aún.</td></tr>';
+        } else {
+            histTbody.innerHTML = salidas.map((s, idx) => `
+                <tr>
+                    <td class="row-num">${idx + 1}</td>
+                    <td><code class="sku-code">${esc(s.numero_ot || '—')}</code></td>
+                    <td class="td-bold">${esc(s.modelo || s.nombre_articulo || '—')}</td>
+                    <td>${s.numero_serie
+                        ? `<code class="serie-code">${esc(s.numero_serie)}</code>`
+                        : `<span class="td-date">${s.cantidad||1} uds.</span>`}</td>
+                    <td><span class="cat-pill">${esc(s.motivo || '—')}</span></td>
+                    <td class="td-date">${formatFecha(s.created_at)}</td>
+                    <td>
+                        <button class="act-btn act-edit"
+                            onclick="verComprobanteTecnico('${s.id}')">
+                            📄 Comprobante
+                        </button>
+                    </td>
+                </tr>`).join('');
+        }
+        if (histCount) histCount.textContent = `${salidas.length} entrega${salidas.length !== 1 ? 's' : ''} recibida${salidas.length !== 1 ? 's' : ''}`;
+
     } catch (err) {
+        console.error('PROINTEL — cargarMisArticulos:', err);
         const tbody = document.getElementById('mis-tbody');
         if (tbody) tbody.innerHTML =
             `<tr><td colspan="6" class="empty-row error-msg">❌ ${err.message}</td></tr>`;
     }
 }
+
+// Cambiar entre pestañas de Mi Bodega
+function switchMiBodegaTab(tab) {
+    const panelStock    = document.getElementById('panel-stock');
+    const panelHistorial = document.getElementById('panel-historial');
+    const tabStock      = document.getElementById('tab-stock');
+    const tabHistorial  = document.getElementById('tab-historial');
+
+    if (tab === 'stock') {
+        panelStock?.classList.remove('hidden');
+        panelHistorial?.classList.add('hidden');
+        tabStock?.classList.add('mb-tab-active');
+        tabHistorial?.classList.remove('mb-tab-active');
+    } else {
+        panelHistorial?.classList.remove('hidden');
+        panelStock?.classList.add('hidden');
+        tabHistorial?.classList.add('mb-tab-active');
+        tabStock?.classList.remove('mb-tab-active');
+    }
+}
+
 
 // ════════════════════════════════════════════════════════════
 //  COMPROBANTE DE DESPACHO — Vista técnico

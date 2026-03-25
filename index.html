@@ -138,13 +138,12 @@
             <nav class="menu">
                 <!-- Menú visible para TODOS -->
                 <button onclick="changeTab('servicios')"     class="menu-btn">🏠 Inicio</button>
-                <button onclick="changeTab('salidas')"       class="menu-btn" data-roles="all">📤 Salida</button>
-
                 <!-- Menú solo TÉCNICO -->
                 <button onclick="changeTab('mis-articulos')" class="menu-btn menu-tecnico-only">🎒 Mi Bodega</button>
                 <button onclick="abrirInstalacion()"         class="menu-btn menu-tecnico-only btn-instalacion">⚡ INSTALACIONES</button>
 
                 <!-- Menú ADMIN / BODEGA (oculto para técnico) -->
+                <button onclick="changeTab('salidas')"      class="menu-btn menu-admin-only">📤 Salidas</button>
                 <button onclick="changeTab('importar')"      class="menu-btn menu-admin-only">📤 Importar Archivo</button>
                 <button onclick="changeTab('articulos')"     class="menu-btn menu-admin-only">📋 Artículos</button>
                 <button onclick="changeTab('reportes')"      class="menu-btn menu-admin-only">📊 Reportes</button>

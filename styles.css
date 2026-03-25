@@ -2167,3 +2167,35 @@ code.serie-code {
     border-radius: 20px;
     font-family: var(--font-mono);
 }
+
+/* ═══════════════════════════════════════════════
+   MI BODEGA — Pestañas internas
+═══════════════════════════════════════════════ */
+.mi-bodega-tabs {
+    display: flex;
+    gap: .4rem;
+    margin-bottom: 1rem;
+    border-bottom: 2px solid var(--border);
+    padding-bottom: 0;
+}
+.mb-tab {
+    background: transparent;
+    border: none;
+    border-bottom: 3px solid transparent;
+    color: var(--dim);
+    font-family: var(--font-body);
+    font-size: .88rem;
+    font-weight: 600;
+    padding: .6rem 1.1rem;
+    cursor: pointer;
+    margin-bottom: -2px;
+    transition: color .2s, border-color .2s;
+    border-radius: 5px 5px 0 0;
+}
+.mb-tab:hover { color: var(--white); background: var(--bg-hover); }
+.mb-tab-active {
+    color: var(--cyan) !important;
+    border-bottom-color: var(--cyan) !important;
+    background: rgba(0,200,240,.06) !important;
+}
+.mb-panel { animation: slideIn .2s ease; }
