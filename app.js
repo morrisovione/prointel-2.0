@@ -2374,12 +2374,25 @@ async function verMaterialEnCampo() {
         </div>
         <p class="table-count" id="campo-count"></p>`;
 
-    const { data, error } = await window.supabase
-        .from('bodega')
-        .select('*')
-        .not('asignado_a', 'is', null)
+    // Material en campo: artículos con cuadrilla asignada O asignado_a no nulo
+    const { data: d1, error: e1 } = await window.supabase
+        .from('bodega').select('*')
+        .not('cuadrilla', 'is', null)
         .not('estado', 'eq', 'vendido')
         .order('fecha_ingreso', { ascending: false });
+
+    const { data: d2 } = await window.supabase
+        .from('bodega').select('*')
+        .is('cuadrilla', null)
+        .not('asignado_a', 'is', null)
+        .not('estado', 'eq', 'vendido');
+
+    const error = e1;
+    const ids   = new Set();
+    const data  = [...(d1||[]), ...(d2||[])].filter(i => {
+        if (ids.has(i.id)) return false;
+        ids.add(i.id); return true;
+    });
 
     const tbody = document.getElementById('campo-tbody');
     const count = document.getElementById('campo-count');
@@ -2423,8 +2436,9 @@ async function devolverABodega(id, nombre) {
     if (!confirm(`¿Devolver "${nombre}" a bodega central?`)) return;
     const { error } = await window.supabase.from('bodega')
         .update({
-            estado:     'disponible',
-            asignado_a: null,
+            estado:      'disponible',
+            cuadrilla:   null,
+            asignado_a:  null,
             responsable: null
         })
         .eq('id', id);
@@ -2940,24 +2954,29 @@ async function guardarSalida(e) {
 
         const updateData = { estado: nuevoEstado };
 
-        // Si es despacho a técnico, asignar en bodega para que aparezca en "Mi Bodega"
+        // Despacho a técnico — actualizar cuadrilla y asignación en bodega
+        // La cuadrilla es la clave principal para que aparezca en "Mi Bodega"
         if (['instalación','traslado','préstamo'].includes(motivo) && tecnico) {
-            // Buscar el usuario del técnico por nombre
             const { data: tData } = await window.supabase
                 .from('usuarios')
                 .select('usuario, cuadrilla')
                 .or(`nombre_completo.eq.${tecnico},usuario.eq.${tecnico}`)
                 .maybeSingle();
 
-            if (tData) {
-                updateData.responsable  = tData.usuario;
-                updateData.asignado_a   = tData.usuario;
-                if (tData.cuadrilla) updateData.cuadrilla = tData.cuadrilla;
+            if (tData?.cuadrilla) {
+                // Tiene cuadrilla — es el campo principal de filtrado
+                updateData.cuadrilla    = tData.cuadrilla;
+                updateData.asignado_a   = tData.usuario || tecnico;
+                updateData.responsable  = tData.usuario || tecnico;
+            } else if (cuadrilla) {
+                // Cuadrilla viene del formulario de salida
+                updateData.cuadrilla    = cuadrilla;
+                updateData.asignado_a   = tecnico;
+                updateData.responsable  = tecnico;
             } else {
-                // Fallback: usar nombre directamente
-                updateData.responsable = tecnico;
-                updateData.asignado_a  = tecnico;
-                if (cuadrilla) updateData.cuadrilla = cuadrilla;
+                // Fallback sin cuadrilla — solo asignado_a
+                updateData.asignado_a   = tecnico;
+                updateData.responsable  = tecnico;
             }
         }
 
@@ -3858,12 +3877,13 @@ async function cargarMisArticulos() {
             .select('*')
             .neq('estado', 'vendido');
 
-        // Construir filtro OR según columnas disponibles
+        // Filtro: artículos asignados a este técnico por cualquiera de las columnas
+        // Si el técnico tiene cuadrilla, prioriza ese campo (más confiable)
         if (cuadrilla) {
-            query = query.or(
-                `asignado_a.eq.${usuario},cuadrilla.eq.${cuadrilla},responsable.eq.${usuario}`
-            );
+            // Cuadrilla es el campo clave — guardarSalida lo escribe al despachar
+            query = query.eq('cuadrilla', cuadrilla);
         } else {
+            // Sin cuadrilla: buscar por usuario en asignado_a o responsable
             query = query.or(
                 `asignado_a.eq.${usuario},responsable.eq.${usuario}`
             );
@@ -3955,7 +3975,7 @@ async function abrirInstalacion() {
         .neq('estado', 'vendido');
 
     if (cuadrilla) {
-        query = query.or(`asignado_a.eq.${usuario},cuadrilla.eq.${cuadrilla},responsable.eq.${usuario}`);
+        query = query.eq('cuadrilla', cuadrilla);
     } else {
         query = query.or(`asignado_a.eq.${usuario},responsable.eq.${usuario}`);
     }
