@@ -2766,6 +2766,47 @@ function filtrarSalidasLive() {
 }
 
 // ── Modal Salida — formulario inteligente ─────────────────
+async function generarNumeroOT() {
+    try {
+        // Buscar el último OT registrado en salidas
+        const { data } = await window.supabase
+            .from('salidas')
+            .select('numero_ot')
+            .not('numero_ot', 'is', null)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        const anio = new Date().getFullYear();
+
+        if (!data?.numero_ot) {
+            // Tabla vacía — primer OT
+            return `OT-${anio}-0001`;
+        }
+
+        const ultimo = String(data.numero_ot);
+
+        // Formato OT-YYYY-NNNN (cadena)
+        const matchStr = ultimo.match(/OT-\d{4}-(\d+)$/i);
+        if (matchStr) {
+            const siguiente = parseInt(matchStr[1], 10) + 1;
+            return `OT-${anio}-${String(siguiente).padStart(4, '0')}`;
+        }
+
+        // Formato entero correlativo (1001, 1002…)
+        const matchInt = ultimo.match(/^(\d+)$/);
+        if (matchInt) {
+            return String(parseInt(matchInt[1], 10) + 1);
+        }
+
+        // Fallback si el formato no coincide
+        return `OT-${anio}-0001`;
+
+    } catch {
+        return `OT-${new Date().getFullYear()}-0001`;
+    }
+}
+
 async function abrirModalSalida() {
     // Cargar técnicos de la tabla usuarios
     const { data: tecnicos } = await window.supabase
@@ -2937,6 +2978,12 @@ async function abrirModalSalida() {
 
     // Inicializar canvas de firma
     setTimeout(initFirmaCanvas, 100);
+
+    // Auto-generar y rellenar el campo OT
+    generarNumeroOT().then(ot => {
+        const campo = document.getElementById('sal-ot');
+        if (campo && !campo.value) campo.value = ot;
+    });
 }
 
 // ── Buscador predictivo de artículos ──────────────────────
@@ -2951,20 +2998,29 @@ async function buscarArticuloSalida(q) {
     _buscarTimer = setTimeout(async () => {
         const qLow = q.toLowerCase();
         // Buscar en caché primero, luego en BD si no hay datos
+        // Filtrar caché: solo disponibles sin asignar
         let resultados = cacheInventario.filter(i =>
-            (i.nombre||'').toLowerCase().includes(qLow) ||
-            (i.articulo||'').toLowerCase().includes(qLow) ||
-            (i.codigo||'').toLowerCase().includes(qLow) ||
-            (i.serie||'').toLowerCase().includes(qLow)
+            ((i.nombre||'').toLowerCase().includes(qLow) ||
+             (i.articulo||'').toLowerCase().includes(qLow) ||
+             (i.codigo||'').toLowerCase().includes(qLow) ||
+             (i.serie||'').toLowerCase().includes(qLow)) &&
+            (i.estado||'').toLowerCase() === 'disponible' &&
+            !i.asignado_a
         );
         if (!resultados.length) {
             const { data } = await window.supabase
                 .from('bodega')
                 .select('id,nombre,articulo,codigo,serie,tipo_material,cantidad,estado,precio')
                 .or(`nombre.ilike.%${q}%,articulo.ilike.%${q}%,codigo.ilike.%${q}%,serie.ilike.%${q}%`)
+                .eq('estado', 'disponible')   // Solo artículos disponibles
+                .is('asignado_a', null)        // Solo los que no están con un técnico
                 .limit(10);
             resultados = data || [];
         }
+        // Filtrar también el caché local para que no aparezcan series entregadas
+        resultados = resultados.filter(i =>
+            (i.estado || '').toLowerCase() === 'disponible'
+        );
         if (!sugEl) return;
         if (!resultados.length) {
             sugEl.innerHTML = '<div class="sal-sug-empty">Sin resultados para "' + esc(q) + '"</div>';
@@ -3131,9 +3187,11 @@ async function guardarSalida(e) {
 
     // Actualizar estado y asignación del artículo en bodega
     if (_articuloSeleccionado?.id) {
-        const nuevoEstado = motivo === 'venta'  ? 'vendido'
-                          : motivo === 'daño'   ? 'dañado'
-                          : motivo === 'instalación' ? 'en_uso'
+        // Estado según motivo — nomenclatura consistente con el inventario
+        const nuevoEstado = motivo === 'venta'       ? 'vendido'
+                          : motivo === 'daño'        ? 'dañado'
+                          : motivo === 'instalación' ? 'entregado'
+                          : motivo === 'traslado'    ? 'entregado'
                           : 'reservado';
 
         // Resolver el usuario del técnico para asignación
