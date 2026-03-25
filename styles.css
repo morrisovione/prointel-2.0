@@ -4,20 +4,45 @@
    Fuentes: Barlow Condensed (display) + Barlow + JetBrains Mono
 ═══════════════════════════════════════════════════════════ */
 
-:root {
+/* ── Modo Oscuro (por defecto) ─── */
+:root,
+[data-theme="dark"] {
     --bg:         #0d1520;
     --bg-surface: #152030;
     --bg-card:    #1a2840;
     --bg-hover:   #1f3050;
-    --cyan:       #00c8f0;
-    --cyan-dim:   rgba(0,200,240,0.15);
-    --cyan-glow:  rgba(0,200,240,0.25);
-    --blue-mid:   #0066cc;
     --white:      #f0f6fc;
     --dim:        #7a8a9e;
     --muted:      #3a4a5e;
     --border:     rgba(255,255,255,0.07);
     --border-cyan:rgba(0,200,240,0.3);
+    --text-main:  #f0f6fc;
+    --text-dim:   #7a8a9e;
+    --shadow-card: 0 4px 24px rgba(0,0,0,0.5);
+}
+
+/* ── Modo Claro ───────────────── */
+[data-theme="light"] {
+    --bg:         #f4f7f6;
+    --bg-surface: #ffffff;
+    --bg-card:    #ffffff;
+    --bg-hover:   #edf2f0;
+    --white:      #2d3436;
+    --dim:        #636e72;
+    --muted:      #b2bec3;
+    --border:     rgba(0,0,0,0.1);
+    --border-cyan:rgba(0,180,216,0.4);
+    --text-main:  #2d3436;
+    --text-dim:   #636e72;
+    --shadow-card: 0 4px 24px rgba(0,0,0,0.08);
+}
+
+/* ── Constantes (igual en ambos temas) ─ */
+:root {
+    --cyan:       #00c8f0;
+    --cyan-dim:   rgba(0,200,240,0.15);
+    --cyan-glow:  rgba(0,200,240,0.25);
+    --blue-mid:   #0066cc;
     --success:    #00e676;
     --warning:    #ffb300;
     --danger:     #ff4d6d;
@@ -34,6 +59,13 @@ body {
     color: var(--white);
     overflow-x: hidden;
     -webkit-font-smoothing: antialiased;
+    transition: background 0.3s ease, color 0.3s ease;
+}
+/* Transición suave en superficies al cambiar tema */
+.sidebar, .top-bar, .login-card, .modal-content,
+.table-wrap, .data-table, .istat, .rep-chart-card,
+.drop-zone, .fact-recibo {
+    transition: background 0.3s ease, border-color 0.3s ease, color 0.3s ease;
 }
 button { cursor: pointer; font-family: inherit; border: none; }
 input  { font-family: inherit; }
@@ -1988,3 +2020,84 @@ code.serie-code {
     box-shadow: 0 0 0 3px rgba(0,200,240,.1);
 }
 .cuad-wrap input::placeholder { color: var(--muted); text-transform: none; }
+
+/* ═══════════════════════════════════════════════
+   MODO CLARO — Ajustes específicos
+═══════════════════════════════════════════════ */
+[data-theme="light"] body {
+    background: var(--bg);
+    color: var(--text-main);
+}
+[data-theme="light"] .sidebar {
+    background: #ffffff;
+    border-right: 1px solid rgba(0,0,0,0.1);
+}
+[data-theme="light"] .top-bar {
+    background: #ffffff;
+    border-bottom: 1px solid rgba(0,0,0,0.1);
+    color: #2d3436;
+}
+[data-theme="light"] .topbar-title,
+[data-theme="light"] .brand-name,
+[data-theme="light"] #user-display { color: #2d3436; }
+[data-theme="light"] .menu-btn     { color: #636e72; }
+[data-theme="light"] .menu-btn:hover,
+[data-theme="light"] .menu-btn.active { color: var(--cyan); background: rgba(0,200,240,0.08); }
+[data-theme="light"] .data-table tbody tr:hover { background: #f0f4f8; }
+[data-theme="light"] .data-table th  { color: #636e72; background: #f8fafb; }
+[data-theme="light"] .data-table td  { border-color: rgba(0,0,0,0.06); color: #2d3436; }
+[data-theme="light"] .table-wrap     { background: #ffffff; border-color: rgba(0,0,0,0.1); }
+[data-theme="light"] .istat          { background: #ffffff; border-color: rgba(0,0,0,0.1); }
+[data-theme="light"] .istat-num      { color: #2d3436; }
+[data-theme="light"] .filter-select,
+[data-theme="light"] .search-bar input,
+[data-theme="light"] .field input,
+[data-theme="light"] .field select,
+[data-theme="light"] .field textarea {
+    background: #f4f7f6;
+    border-color: rgba(0,0,0,0.15);
+    color: #2d3436;
+}
+[data-theme="light"] .field input::placeholder,
+[data-theme="light"] .search-bar input::placeholder { color: #b2bec3; }
+[data-theme="light"] .modal-content  { background: #ffffff; color: #2d3436; }
+[data-theme="light"] .modal-head     { border-color: rgba(0,0,0,0.1); }
+[data-theme="light"] .modal-foot     { border-color: rgba(0,0,0,0.1); }
+[data-theme="light"] .welcome-banner { background: #ffffff; border-color: rgba(0,0,0,0.1); }
+[data-theme="light"] .summary-card   { background: #ffffff; border-color: rgba(0,0,0,0.1); }
+[data-theme="light"] .summary-card:hover { border-color: var(--cyan); }
+[data-theme="light"] .rep-chart-card { background: #ffffff; border-color: rgba(0,0,0,0.1); }
+[data-theme="light"] .sidebar-footer,
+[data-theme="light"] .btn-logout     { border-color: rgba(220,53,69,0.2); }
+[data-theme="light"] .sku-code       { background: #f0f4f8; color: #636e72; border-color: rgba(0,0,0,0.1); }
+[data-theme="light"] code.serie-code { background: rgba(0,180,216,0.1); border-color: rgba(0,180,216,0.25); }
+[data-theme="light"] .td-date,
+[data-theme="light"] .text-dim       { color: #636e72; }
+
+/* ── Botón Toggle de Tema ────────────────────── */
+.theme-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: transparent;
+    border: 1.5px solid var(--border);
+    cursor: pointer;
+    font-size: 1rem;
+    transition: background 0.2s, border-color 0.2s, transform 0.2s;
+    flex-shrink: 0;
+}
+.theme-toggle:hover {
+    background: var(--bg-hover);
+    border-color: var(--cyan);
+    transform: rotate(20deg);
+}
+[data-theme="light"] .theme-toggle {
+    border-color: rgba(0,0,0,0.15);
+    color: #2d3436;
+}
+[data-theme="light"] .theme-toggle:hover {
+    background: #edf2f0;
+}

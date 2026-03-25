@@ -13,6 +13,12 @@ const SUPERUSUARIO = 'mgvillegas';
 document.addEventListener('DOMContentLoaded', () => {
     console.log('PROINTEL 2.0 — Listo');
 
+    // ── Restaurar preferencia de tema ────────────────────
+    const temaGuardado = localStorage.getItem('prointel_theme') || 'dark';
+    document.body.setAttribute('data-theme', temaGuardado);
+    const toggleBtn = document.getElementById('theme-toggle');
+    if (toggleBtn) toggleBtn.textContent = temaGuardado === 'dark' ? '🌙' : '☀️';
+
     // ── Restaurar sesión si el usuario recargó la página ─
     const sesionGuardada = localStorage.getItem('prointel_session');
     if (sesionGuardada) {
@@ -3315,13 +3321,7 @@ function _ocultarBotonesTecnico() {
     // Deshabilitar también selects de filtro de estado para evitar edición
     // (Los selects de solo FILTRO los dejamos activos — son de lectura)
 
-    // Agregar banner informativo si no existe aún
-    if (!content.querySelector('.tecnico-banner')) {
-        const banner = document.createElement('div');
-        banner.className = 'tecnico-banner';
-        banner.innerHTML = '🔒 Modo Solo Lectura — Perfil Técnico. Contacta a un administrador para realizar cambios.';
-        content.prepend(banner);
-    }
+    // Técnico: sin banner visible — la restricción opera en silencio
 }
 
 /**
@@ -3339,6 +3339,31 @@ function _ocultarBotonesTecnico() {
         setTimeout(_ocultarBotonesTecnico, 50);
     };
 })();
+
+// ════════════════════════════════════════════════════════════
+//  TEMA CLARO / OSCURO
+// ════════════════════════════════════════════════════════════
+
+/**
+ * Alterna entre modo oscuro y modo claro.
+ * Guarda la preferencia en localStorage.
+ */
+function toggleTheme() {
+    const body    = document.body;
+    const actual  = body.getAttribute('data-theme') || 'dark';
+    const nuevo   = actual === 'dark' ? 'light' : 'dark';
+
+    body.setAttribute('data-theme', nuevo);
+    localStorage.setItem('prointel_theme', nuevo);
+
+    const btn = document.getElementById('theme-toggle');
+    if (btn) {
+        btn.textContent = nuevo === 'dark' ? '🌙' : '☀️';
+        // Animación rápida
+        btn.style.transform = 'rotate(360deg)';
+        setTimeout(() => { btn.style.transform = ''; }, 400);
+    }
+}
 
 // ════════════════════════════════════════════════════════════
 //  UTILIDADES MODALES
