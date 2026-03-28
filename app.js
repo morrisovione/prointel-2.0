@@ -4188,8 +4188,10 @@ function _ocultarBotonesAdmin() {
         'Exportar', 'Importar'
     ];
     content.querySelectorAll('.btn-cyan, .btn-outline-sm').forEach(el => {
-        // NUNCA ocultar el botón de guardar instalación
+        // NUNCA ocultar botones operativos del técnico
         if (el.id === 'btn-guardar-inst') return;
+        if (el.id === 'btn-guardar-sal')  return;
+        if (el.type === 'submit')          return; // Ningún submit se oculta
 
         const txt = (el.textContent || '').trim();
         if (textosAdmin.some(t => txt.includes(t))) {
