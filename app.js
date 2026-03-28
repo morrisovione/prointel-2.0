@@ -2372,7 +2372,7 @@ async function guardarArticulo(e, id) {
         // Guardar cuadrilla manual en memoria de sesión si aplica
         if (cuadrilla) guardarCuadrillaManualSiAplica(cuadrilla);
 
-        cerrarModal('modal-articulo');
+        cerrarModal('modal-articulo', true); // forzar = true
         cacheInventario = [];
         cargarInventarioBodega();
 
@@ -3340,7 +3340,7 @@ Detalle: ${errSalida.details}` : '';
 
         // ── Éxito ─────────────────────────────────────────────
         _articuloSeleccionado = null;
-        cerrarModal('modal-salida');
+        cerrarModal('modal-salida', true); // forzar = true, ya se guardó
         cargarSalidas();
 
     } catch (err) {
@@ -4719,8 +4719,70 @@ function toggleTheme() {
 // ════════════════════════════════════════════════════════════
 //  UTILIDADES MODALES
 // ════════════════════════════════════════════════════════════
-function cerrarModal(id) { const el = document.getElementById(id); if (el) el.remove(); }
-function cerrarModalClick(e, id) { if (e.target.id === id) cerrarModal(id); }
+
+/**
+ * Detecta si el modal tiene datos ingresados para advertir antes de cerrar.
+ * Revisa: inputs con texto, series escaneadas, firma dibujada.
+ */
+function _modalTieneDatos(id) {
+    const el = document.getElementById(id);
+    if (!el) return false;
+
+    // Revisar inputs de texto con valor
+    const inputs = el.querySelectorAll('input[type="text"], input[type="number"], textarea');
+    for (const inp of inputs) {
+        if ((inp.value || '').trim().length > 0) return true;
+    }
+
+    // Revisar series escaneadas
+    const chips = el.querySelectorAll('.serie-chip');
+    if (chips.length > 0) return true;
+
+    // Revisar firma dibujada
+    const canvas = el.querySelector('#firma-canvas');
+    if (canvas) {
+        const ctx = canvas.getContext('2d');
+        const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        if (Array.from(data).some(v => v !== 0)) return true;
+    }
+
+    return false;
+}
+
+/**
+ * Cierra un modal. Si tiene datos, pide confirmación primero.
+ * @param {string} id — ID del modal
+ * @param {boolean} forzar — true = cerrar sin confirmar (ej. tras guardar exitoso)
+ */
+function cerrarModal(id, forzar = false) {
+    if (!forzar && _modalTieneDatos(id)) {
+        const confirmar = confirm('¿Seguro que quieres cerrar? Perderas los datos introducidos, series escaneadas y la firma.');
+        if (!confirmar) return;
+    }
+    const el = document.getElementById(id);
+    if (el) el.remove();
+}
+
+// Solo cierra por clic en backdrop si el modal lo permite explícitamente
+function cerrarModalClick(e, id) {
+    if (e.target.id === id) cerrarModal(id);
+}
+
+// Cerrar modales con tecla Escape — con confirmación si hay datos
+document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    // Buscar el último modal abierto
+    const modales = document.querySelectorAll('.modal-overlay');
+    if (!modales.length) return;
+    const ultimo = modales[modales.length - 1];
+    // Solo cerrar si NO es un modal protegido (artículo o salida)
+    const protegidos = ['modal-articulo', 'modal-salida', 'modal-instalacion-panel'];
+    if (protegidos.includes(ultimo.id)) {
+        cerrarModal(ultimo.id); // cerrarModal ya pide confirmación si hay datos
+    } else {
+        cerrarModal(ultimo.id, true); // Modales sin datos importantes: cerrar directo
+    }
+});
 
 
 // ════════════════════════════════════════════════════════════
