@@ -2289,3 +2289,46 @@ code.serie-code {
     z-index: 2;
     padding-bottom: .5rem;
 }
+
+/* ═══════════════════════════════════════════════
+   DESCARGOS — Botón y footer siempre visibles
+═══════════════════════════════════════════════ */
+#descargo-footer {
+    display: flex !important;
+    justify-content: flex-end;
+    align-items: center;
+    gap: .7rem;
+    padding: 1rem 1.4rem 1.4rem;
+    margin-top: .8rem;
+    border-top: 1px solid var(--border);
+    position: sticky !important;
+    bottom: 0 !important;
+    background: var(--bg-surface);
+    z-index: 999 !important;
+}
+
+.btn-guardar-final {
+    display: inline-flex !important;
+    align-items: center;
+    gap: .4rem;
+    background: var(--cyan);
+    color: #000;
+    font-weight: 700;
+    font-size: .9rem;
+    font-family: var(--font-body);
+    padding: .65rem 1.4rem;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background .2s, box-shadow .2s;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+.btn-guardar-final:hover {
+    background: #33d4f5;
+    box-shadow: 0 0 14px rgba(0,200,240,.35);
+}
+.btn-guardar-final:disabled {
+    opacity: .6;
+    cursor: not-allowed;
+}

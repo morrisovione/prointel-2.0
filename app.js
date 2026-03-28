@@ -424,10 +424,10 @@ function cargarServicios() {
                 <div class="card-label">Mi Bodega</div>
                 <div class="card-sub">Ver mi stock personal</div>
             </div>
-            <div class="summary-card" onclick="abrirInstalacion()">
-                <div class="card-icon">⚡</div>
-                <div class="card-label">Instalaciones</div>
-                <div class="card-sub">Registrar trabajo de campo</div>
+            <div class="summary-card" onclick="abrirDescargos()">
+                <div class="card-icon">📦</div>
+                <div class="card-label">Descargos</div>
+                <div class="card-sub">Registrar material instalado</div>
             </div>
             <div class="summary-card" onclick="changeTab('salidas')">
                 <div class="card-icon">📤</div>
@@ -2367,7 +2367,7 @@ async function guardarArticulo(e, id) {
             // Misceláneos — sin serie, con cantidad
             const cantidad = parseInt(document.getElementById('art-cantidad')?.value) || 1;
             const unidad   = document.getElementById('art-unidad')?.value.trim() || null;
-            const payload  = { ...payloadBase, serie: null, cantidad };
+            const payload  = { ...payloadBase, serie: '', cantidad }; // serie vacío para misceláneos (NOT NULL)
             if (unidad) payload.unidad = unidad;
 
             const { error } = id
@@ -4144,6 +4144,8 @@ function verificarPermisos() {
     if (esTecnico) {
         const formActivo = document.getElementById('form-instalacion') ||
                            document.getElementById('form-instalacion-panel') ||
+                           document.getElementById('form-descargos') ||
+                           document.getElementById('btnGuardarDescargo') ||
                            document.getElementById('btn-guardar-inst');
         if (!formActivo) _ocultarBotonesAdmin();
     }
@@ -4189,9 +4191,10 @@ function _ocultarBotonesAdmin() {
     ];
     content.querySelectorAll('.btn-cyan, .btn-outline-sm').forEach(el => {
         // NUNCA ocultar botones operativos del técnico
-        if (el.id === 'btn-guardar-inst') return;
-        if (el.id === 'btn-guardar-sal')  return;
-        if (el.type === 'submit')          return; // Ningún submit se oculta
+        if (el.id === 'btn-guardar-inst')   return;
+        if (el.id === 'btn-guardar-sal')    return;
+        if (el.id === 'btnGuardarDescargo') return;
+        if (el.type === 'submit')            return;
 
         const txt = (el.textContent || '').trim();
         if (textosAdmin.some(t => txt.includes(t))) {
@@ -4453,105 +4456,105 @@ function verComprobanteTecnico(salidaId) {
 }
 
 
+
 // ════════════════════════════════════════════════════════════
-//  INSTALACIONES — Formulario de descarga de material
+//  DESCARGOS — Registro de material instalado en campo
 // ════════════════════════════════════════════════════════════
 
-async function abrirInstalacion() {
-    // Siempre recargar stock fresco al abrir
+/**
+ * Alias legacy — cualquier llamada a abrirInstalacion() redirige a DESCARGOS
+ */
+function abrirInstalacion() { abrirDescargos(); }
+
+async function abrirDescargos() {
+    // Recargar stock fresco del técnico
     window._misBodegaItems = null;
 
-    // Mostrar estado de carga en el panel
     const content = document.getElementById('dashboard-content');
     if (content) {
         content.innerHTML = `
             <div class="module-header">
-                <h2>⚡ INSTALACIONES</h2>
+                <h2>📦 DESCARGOS</h2>
+                <button class="btn-nav" onclick="cargarMisArticulos()">← Volver a mi bodega</button>
             </div>
-            <p class="loading-msg">⏳ Cargando tu stock personal…</p>`;
+            <p class="loading-msg">⏳ Cargando tu stock…</p>`;
     }
 
-    // Cargar stock del técnico sin cambiar el panel (usamos fetch directo)
+    // Cargar stock del técnico
     const usuario   = currentUser?.usuario || '';
     const cuadrilla = currentUser?.cuadrilla || '';
 
-    let query = window.supabase
-        .from('bodega')
-        .select('*')
-        .neq('estado', 'vendido');
-
+    let q = window.supabase.from('bodega').select('*').neq('estado','vendido');
     if (cuadrilla) {
-        query = query.eq('cuadrilla', cuadrilla);
+        q = q.eq('cuadrilla', cuadrilla);
     } else {
-        query = query.or(`asignado_a.eq.${usuario},responsable.eq.${usuario}`);
+        q = q.or(`asignado_a.eq.${usuario},responsable.eq.${usuario}`);
     }
 
-    const { data } = await query.order('fecha_ingreso', { ascending: false });
+    const { data } = await q.order('fecha_ingreso', { ascending: false });
     window._misBodegaItems = data || [];
 
     const disponibles = window._misBodegaItems.filter(
-        i => (i.estado || '').toLowerCase() !== 'vendido'
+        i => !['vendido','instalado'].includes((i.estado||'').toLowerCase())
     );
 
     const optsItems = disponibles.length
         ? disponibles.map(i => {
-            const maxStock = i.tipo_material === 'miscelaneo' ? (i.cantidad || 1) : 1;
-            const label = `${i.nombre || i.articulo || 'Sin nombre'}${i.serie ? ' — ' + i.serie : ''} · ${maxStock} disp.`;
+            const max   = i.tipo_material === 'miscelaneo' ? (i.cantidad||1) : 1;
+            const label = `${i.nombre||i.articulo||'Sin nombre'}${i.serie ? ' — ' + i.serie : ''} · ${max} disp.`;
             return `<option value="${i.id}"
-                data-max="${maxStock}"
-                data-nombre="${esc(i.nombre || i.articulo || '')}"
-                data-serie="${esc(i.serie || '')}"
-                data-codigo="${esc(i.codigo || '')}">
+                data-max="${max}"
+                data-nombre="${esc(i.nombre||i.articulo||'')}"
+                data-serie="${esc(i.serie||'')}"
+                data-codigo="${esc(i.codigo||'')}">
                 ${esc(label)}
             </option>`;
         }).join('')
-        : '<option value="" disabled>Sin artículos disponibles en tu bodega</option>';
+        : '<option value="" disabled>Sin material disponible en tu bodega</option>';
 
-    // Renderizar formulario directamente en el panel (no modal)
-    // — así verificarPermisos no lo interrumpe
     if (content) {
         content.innerHTML = `
             <div class="module-header">
-                <h2>⚡ INSTALACIONES</h2>
+                <h2>📦 DESCARGOS</h2>
                 <button class="btn-nav" onclick="cargarMisArticulos()">← Volver a mi bodega</button>
             </div>
 
-            <form id="form-instalacion-panel" onsubmit="guardarInstalacion(event)"
+            <form id="form-descargos" onsubmit="guardarDescargo(event)"
                   class="inst-panel-form">
 
                 <div class="form-grid">
 
                     <div class="field field-full">
                         <label>Nº SOLICITUD / OT <span class="req">*</span></label>
-                        <input type="text" id="inst-ot" required
+                        <input type="text" id="desc-ot" required
                             placeholder="OT-2025-0001"
                             style="font-family:var(--font-mono);font-size:1rem" autofocus />
                     </div>
 
                     <div class="field field-full">
-                        <label>MATERIAL UTILIZADO <span class="req">*</span>
-                            <span id="inst-stock-badge"
+                        <label>MATERIAL DESCARGADO <span class="req">*</span>
+                            <span id="desc-stock-badge"
                                 class="series-count-badge"
                                 style="display:none"></span>
                         </label>
-                        <select id="inst-item" required
-                            onchange="onInstItemChange(this)"
+                        <select id="desc-item" required
+                            onchange="onDescItemChange(this)"
                             class="filter-select" style="width:100%">
                             <option value="">— Seleccionar de mi bodega —</option>
                             ${optsItems}
                         </select>
-                        <div id="inst-codigo-wrap" class="sal-codigo-interno hidden">
+                        <div id="desc-codigo-wrap" class="sal-codigo-interno hidden">
                             <span class="sal-codigo-label">Código interno:</span>
-                            <code id="inst-codigo-val" class="serie-code"></code>
+                            <code id="desc-codigo-val" class="serie-code"></code>
                         </div>
                     </div>
 
                     <div class="field">
-                        <label>CANTIDAD UTILIZADA <span class="req">*</span></label>
-                        <input type="number" id="inst-cantidad"
+                        <label>CANTIDAD DESCARGADA <span class="req">*</span></label>
+                        <input type="number" id="desc-cantidad"
                             min="1" max="1" value="1" required
-                            oninput="validarCantidadInst(this)" />
-                        <div id="inst-cant-error"
+                            oninput="validarCantidadDesc(this)" />
+                        <div id="desc-cant-error"
                             style="font-size:.78rem;color:var(--danger);
                                    margin-top:.3rem;display:none">
                             ⚠️ Stock insuficiente en tu bodega personal.
@@ -4559,123 +4562,121 @@ async function abrirInstalacion() {
                     </div>
 
                     <div class="field">
-                        <label>DIRECCIÓN / CLIENTE</label>
-                        <input type="text" id="inst-destino"
+                        <label>DIRECCIÓN DEL CLIENTE</label>
+                        <input type="text" id="desc-destino"
                             placeholder="Dirección de la instalación" />
                     </div>
 
                     <div class="field field-full">
                         <label>DESCRIPCIÓN DEL TRABAJO</label>
-                        <textarea id="inst-notas" rows="3"
+                        <textarea id="desc-notas" rows="3"
                             placeholder="Tipo de instalación, observaciones técnicas…"></textarea>
                     </div>
 
                 </div>
 
-                <div class="inst-panel-footer">
+                <!-- Footer con z-index alto — SIEMPRE visible -->
+                <div id="descargo-footer">
                     <button type="button" class="btn-ghost-sm"
-                        onclick="cargarMisArticulos()">Cancelar</button>
-                    <button type="submit" class="btn-cyan" id="btn-guardar-inst">
-                        ⚡ Guardar Instalación
+                        onclick="confirmarCierreDescargo()">Cancelar</button>
+                    <button type="submit" class="btn-guardar-final"
+                        id="btnGuardarDescargo">
+                        📦 Finalizar Descargo
                     </button>
                 </div>
 
             </form>`;
-    }
 
-    // Forzar visibilidad del botón guardar después de renderizar
-    // (el sistema de permisos puede ocultarlo si no detecta el formulario activo)
-    requestAnimationFrame(() => {
-        const btnGuardar = document.getElementById('btn-guardar-inst');
-        if (btnGuardar) {
-            btnGuardar.style.display  = 'inline-flex';
-            btnGuardar.style.visibility = 'visible';
-            btnGuardar.removeAttribute('hidden');
-        }
-    });
+        // Forzar visibilidad del botón — triple seguridad
+        requestAnimationFrame(() => {
+            const btn = document.getElementById('btnGuardarDescargo');
+            if (btn) {
+                btn.style.cssText = 'display:inline-flex !important;visibility:visible !important;opacity:1 !important;';
+            }
+        });
+    }
 }
 
-function onInstItemChange(sel) {
+function onDescItemChange(sel) {
     const opt      = sel.options[sel.selectedIndex];
-    const maxStock = parseInt(opt.getAttribute('data-max') || 1);
-    const codigo   = opt.getAttribute('data-codigo') || '';
+    const maxStock = parseInt(opt.getAttribute('data-max')||1);
+    const codigo   = opt.getAttribute('data-codigo')||'';
 
-    const cantEl  = document.getElementById('inst-cantidad');
-    const badgeEl = document.getElementById('inst-stock-badge');
-    const codWrap = document.getElementById('inst-codigo-wrap');
-    const codVal  = document.getElementById('inst-codigo-val');
-    const errEl   = document.getElementById('inst-cant-error');
-    const btnEl   = document.getElementById('btn-guardar-inst');
+    const cantEl  = document.getElementById('desc-cantidad');
+    const badgeEl = document.getElementById('desc-stock-badge');
+    const codWrap = document.getElementById('desc-codigo-wrap');
+    const codVal  = document.getElementById('desc-codigo-val');
+    const errEl   = document.getElementById('desc-cant-error');
+    const btnEl   = document.getElementById('btnGuardarDescargo');
 
     if (cantEl) { cantEl.max = maxStock; cantEl.value = 1; }
     if (errEl)  errEl.style.display = 'none';
     if (btnEl)  btnEl.disabled = false;
 
     if (badgeEl) {
-        badgeEl.textContent    = `Stock: ${maxStock}`;
-        badgeEl.style.display  = 'inline-block';
-        badgeEl.style.background = maxStock > 0
-            ? 'rgba(0,230,118,.15)' : 'rgba(255,77,109,.15)';
-        badgeEl.style.color    = maxStock > 0 ? '#00e676' : '#ff4d6d';
-        badgeEl.style.border   = maxStock > 0
-            ? '1px solid rgba(0,230,118,.3)' : '1px solid rgba(255,77,109,.3)';
+        badgeEl.textContent   = `Stock: ${maxStock}`;
+        badgeEl.style.display = 'inline-block';
+        badgeEl.style.background = maxStock > 0 ? 'rgba(0,230,118,.15)' : 'rgba(255,77,109,.15)';
+        badgeEl.style.color   = maxStock > 0 ? '#00e676' : '#ff4d6d';
+        badgeEl.style.border  = maxStock > 0 ? '1px solid rgba(0,230,118,.3)' : '1px solid rgba(255,77,109,.3)';
     }
 
     if (codWrap && codVal) {
-        if (codigo) {
-            codVal.textContent = codigo;
-            codWrap.classList.remove('hidden');
-        } else {
-            codWrap.classList.add('hidden');
-        }
+        if (codigo) { codVal.textContent = codigo; codWrap.classList.remove('hidden'); }
+        else         { codWrap.classList.add('hidden'); }
     }
 }
 
-function validarCantidadInst(input) {
-    const max      = parseInt(input.max || 1);
-    const val      = parseInt(input.value || 0);
+function validarCantidadDesc(input) {
+    const max      = parseInt(input.max||1);
+    const val      = parseInt(input.value||0);
     const invalido = val > max || val < 1;
-    const errEl    = document.getElementById('inst-cant-error');
-    const btnEl    = document.getElementById('btn-guardar-inst');
+    const errEl    = document.getElementById('desc-cant-error');
+    const btnEl    = document.getElementById('btnGuardarDescargo');
     if (errEl) errEl.style.display = invalido ? 'block' : 'none';
     if (btnEl) btnEl.disabled = invalido;
 }
 
-async function guardarInstalacion(e) {
+function confirmarCierreDescargo() {
+    const ot   = (document.getElementById('desc-ot')?.value||'').trim();
+    const nota = (document.getElementById('desc-notas')?.value||'').trim();
+    if (ot || nota) {
+        if (!confirm('¿Seguro que quieres cerrar? Perderás los datos del descargo.')) return;
+    }
+    cargarMisArticulos();
+}
+
+async function guardarDescargo(e) {
     e.preventDefault();
 
-    const ot       = document.getElementById('inst-ot')?.value.trim();
-    const itemId   = document.getElementById('inst-item')?.value;
-    const cantidad = parseInt(document.getElementById('inst-cantidad')?.value || 1);
-    const destino  = document.getElementById('inst-destino')?.value.trim() || null;
-    const notas    = document.getElementById('inst-notas')?.value.trim()   || null;
+    const ot       = document.getElementById('desc-ot')?.value.trim();
+    const itemId   = document.getElementById('desc-item')?.value;
+    const cantidad = parseInt(document.getElementById('desc-cantidad')?.value||1);
+    const destino  = document.getElementById('desc-destino')?.value.trim() || null;
+    const notas    = document.getElementById('desc-notas')?.value.trim()   || null;
 
     if (!ot)     { alert('El número de OT es obligatorio.'); return; }
-    if (!itemId) { alert('Selecciona el material utilizado.'); return; }
+    if (!itemId) { alert('Selecciona el material a descargar.'); return; }
 
-    const item = (window._misBodegaItems || []).find(i => String(i.id) === String(itemId));
+    const item = (window._misBodegaItems||[]).find(i => String(i.id) === String(itemId));
     if (!item)   { alert('Artículo no encontrado. Actualiza tu bodega.'); return; }
 
-    const maxStock = item.tipo_material === 'miscelaneo' ? (item.cantidad || 1) : 1;
+    const maxStock = item.tipo_material === 'miscelaneo' ? (item.cantidad||1) : 1;
     if (cantidad > maxStock) {
-        alert(
-            `⚠️ Stock insuficiente en tu bodega personal.\n` +
-            `Tienes ${maxStock} unidad(es) disponible(s).\n` +
-            `No puedes descargar ${cantidad}.`
-        );
-        document.getElementById('inst-cantidad')?.focus();
+        alert('⚠️ Stock insuficiente en tu bodega personal.\nTienes ' + maxStock + ' unidad(es).');
+        document.getElementById('desc-cantidad')?.focus();
         return;
     }
 
-    const btn    = document.getElementById('btn-guardar-inst');
-    const btnTxt = btn?.textContent || '⚡ Guardar Instalación';
+    const btn    = document.getElementById('btnGuardarDescargo');
+    const btnTxt = btn?.textContent || '📦 Finalizar Descargo';
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Guardando…'; }
 
     try {
-        // 1. Registrar en tabla salidas
+        // 1. Registrar en salidas (historial del técnico)
         const { error: errSal } = await window.supabase.from('salidas').insert({
             bodega_id:       item.id,
-            numero_serie:    item.serie || null,
+            numero_serie:    item.serie || '',
             modelo:          item.nombre || item.articulo || null,
             cantidad,
             motivo:          'instalación',
@@ -4683,66 +4684,43 @@ async function guardarInstalacion(e) {
             responsable:     currentUser.nombre_completo || currentUser.usuario,
             cuadrilla:       currentUser.cuadrilla || null,
             numero_ot:       ot,
-            estado_material: 'nuevo',
+            estado_material: 'instalado',
             notas
         });
         if (errSal) {
-            const cod = errSal.code ? ` [${errSal.code}]` : '';
-            throw new Error(`Error al registrar instalación${cod}: ${errSal.message}`);
+            throw new Error('Error al registrar descargo [' + (errSal.code||'') + ']: ' + errSal.message);
         }
 
-        // 2. Descontar stock en bodega
+        // 2. Actualizar estado en bodega → 'instalado'
         if (item.tipo_material === 'miscelaneo') {
-            const nuevoStock  = Math.max(0, (item.cantidad || 1) - cantidad);
-            const nuevoEstado = nuevoStock <= 0 ? 'vendido' : 'disponible';
-            await window.supabase
-                .from('bodega')
+            const nuevoStock  = Math.max(0, (item.cantidad||1) - cantidad);
+            const nuevoEstado = nuevoStock <= 0 ? 'instalado' : 'disponible';
+            await window.supabase.from('bodega')
                 .update({ cantidad: nuevoStock, estado: nuevoEstado })
                 .eq('id', item.id);
         } else {
-            await window.supabase
-                .from('bodega')
-                .update({ estado: 'vendido' })
+            await window.supabase.from('bodega')
+                .update({ estado: 'instalado' })
                 .eq('id', item.id);
+            // También actualizar por serie si existe
+            if (item.serie) {
+                await window.supabase.from('bodega')
+                    .update({ estado: 'instalado' })
+                    .eq('serie', item.serie);
+            }
         }
 
-        // 3. Éxito — limpiar formulario y navegar sin alert bloqueante
+        // 3. Éxito
         window._misBodegaItems = null;
-
-        // Mostrar toast en vez de alert (no bloquea el hilo)
-        _mostrarToastExito(`✅ Instalación OT ${esc(ot)} registrada. Stock actualizado.`);
-
-        // Navegar a Mi Bodega después de un breve delay
+        _mostrarToastExito('✅ Descargo OT ' + esc(ot) + ' registrado. Stock actualizado.');
         setTimeout(() => cargarMisArticulos(), 800);
 
     } catch (err) {
         alert('❌ ' + err.message);
-        console.error('PROINTEL — guardarInstalacion:', err);
+        console.error('PROINTEL — guardarDescargo:', err);
     } finally {
-        // SIEMPRE liberar el botón
         if (btn) { btn.disabled = false; btn.textContent = btnTxt; }
     }
-}
-
-// ════════════════════════════════════════════════════════════
-//  TEMA CLARO / OSCURO
-// ════════════════════════════════════════════════════════════
-
-/**
- * Alterna entre modo oscuro y modo claro.
- * Guarda la preferencia en localStorage.
- */
-// ── Toast de éxito (no bloquea el hilo) ──────────────────
-function _mostrarToastExito(msg) {
-    const t = document.createElement('div');
-    t.className = 'toast-exito';
-    t.textContent = msg;
-    document.body.appendChild(t);
-    setTimeout(() => t.classList.add('toast-visible'), 50);
-    setTimeout(() => {
-        t.classList.remove('toast-visible');
-        setTimeout(() => t.remove(), 400);
-    }, 3000);
 }
 
 function toggleTheme() {
