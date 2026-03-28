@@ -4136,7 +4136,8 @@ function verificarPermisos() {
     // Solo ocultar si NO hay formulario operativo activo del técnico
     if (esTecnico) {
         const formActivo = document.getElementById('form-instalacion') ||
-                           document.getElementById('form-instalacion-panel');
+                           document.getElementById('form-instalacion-panel') ||
+                           document.getElementById('btn-guardar-inst');
         if (!formActivo) _ocultarBotonesAdmin();
     }
 }
@@ -4643,7 +4644,8 @@ async function guardarInstalacion(e) {
         return;
     }
 
-    const btn = document.getElementById('btn-guardar-inst');
+    const btn    = document.getElementById('btn-guardar-inst');
+    const btnTxt = btn?.textContent || '⚡ Guardar Instalación';
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Guardando…'; }
 
     try {
@@ -4661,33 +4663,41 @@ async function guardarInstalacion(e) {
             estado_material: 'nuevo',
             notas
         });
-        if (errSal) throw errSal;
+        if (errSal) {
+            const cod = errSal.code ? ` [${errSal.code}]` : '';
+            throw new Error(`Error al registrar instalación${cod}: ${errSal.message}`);
+        }
 
         // 2. Descontar stock en bodega
         if (item.tipo_material === 'miscelaneo') {
             const nuevoStock  = Math.max(0, (item.cantidad || 1) - cantidad);
             const nuevoEstado = nuevoStock <= 0 ? 'vendido' : 'disponible';
-            const { error: errUpd } = await window.supabase
+            await window.supabase
                 .from('bodega')
                 .update({ cantidad: nuevoStock, estado: nuevoEstado })
                 .eq('id', item.id);
-            if (errUpd) throw errUpd;
         } else {
-            const { error: errUpd } = await window.supabase
+            await window.supabase
                 .from('bodega')
                 .update({ estado: 'vendido' })
                 .eq('id', item.id);
-            if (errUpd) throw errUpd;
         }
 
-        // 3. Limpiar caché y regresar a Mi Bodega
+        // 3. Éxito — limpiar formulario y navegar sin alert bloqueante
         window._misBodegaItems = null;
-        alert(`✅ Instalación OT ${ot} registrada. Stock actualizado.`);
-        cargarMisArticulos();
+
+        // Mostrar toast en vez de alert (no bloquea el hilo)
+        _mostrarToastExito(`✅ Instalación OT ${esc(ot)} registrada. Stock actualizado.`);
+
+        // Navegar a Mi Bodega después de un breve delay
+        setTimeout(() => cargarMisArticulos(), 800);
 
     } catch (err) {
-        alert('Error al guardar: ' + err.message);
-        if (btn) { btn.disabled = false; btn.textContent = '⚡ Guardar Instalación'; }
+        alert('❌ ' + err.message);
+        console.error('PROINTEL — guardarInstalacion:', err);
+    } finally {
+        // SIEMPRE liberar el botón
+        if (btn) { btn.disabled = false; btn.textContent = btnTxt; }
     }
 }
 
@@ -4699,6 +4709,19 @@ async function guardarInstalacion(e) {
  * Alterna entre modo oscuro y modo claro.
  * Guarda la preferencia en localStorage.
  */
+// ── Toast de éxito (no bloquea el hilo) ──────────────────
+function _mostrarToastExito(msg) {
+    const t = document.createElement('div');
+    t.className = 'toast-exito';
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(() => t.classList.add('toast-visible'), 50);
+    setTimeout(() => {
+        t.classList.remove('toast-visible');
+        setTimeout(() => t.remove(), 400);
+    }, 3000);
+}
+
 function toggleTheme() {
     const body    = document.body;
     const actual  = body.getAttribute('data-theme') || 'dark';

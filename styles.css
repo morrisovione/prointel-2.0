@@ -2234,3 +2234,44 @@ code.serie-code {
     background: rgba(0,200,240,.06) !important;
 }
 .mb-panel { animation: slideIn .2s ease; }
+
+/* ═══════════════════════════════════════════════
+   TOAST DE ÉXITO
+═══════════════════════════════════════════════ */
+.toast-exito {
+    position: fixed;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: rgba(0,230,118,.95);
+    color: #001a0d;
+    font-weight: 700;
+    font-size: .9rem;
+    padding: .75rem 1.5rem;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0,0,0,.4);
+    z-index: 9999;
+    opacity: 0;
+    transition: opacity .3s ease, transform .3s ease;
+    white-space: nowrap;
+    pointer-events: none;
+}
+.toast-exito.toast-visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+/* Inst-panel footer sticky */
+.inst-panel-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: .7rem;
+    padding-top: 1rem;
+    margin-top: .8rem;
+    border-top: 1px solid var(--border);
+    position: sticky;
+    bottom: 0;
+    background: var(--bg-surface);
+    z-index: 2;
+    padding-bottom: .5rem;
+}
