@@ -881,11 +881,13 @@ input  { font-family: inherit; }
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.8);
-    backdrop-filter: blur(10px);
+    backdrop-filter: blur(4px);  /* Reducido — blur alto puede causar lag */
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 1000;
+    padding: 1rem;               /* Margen en pantallas pequeñas */
+    overflow-y: auto;            /* Si el modal es más alto que la pantalla */
 }
 
 .modal-content {
@@ -894,24 +896,35 @@ input  { font-family: inherit; }
     border-radius: 12px;
     width: 100%;
     max-width: 500px;
-    max-height: 92vh;           /* Nunca superar la pantalla */
+    max-height: 92vh;
     display: flex;
-    flex-direction: column;     /* Head fijo, body scroll, foot fijo */
+    flex-direction: column;
     box-shadow: 0 0 40px rgba(0, 200, 240, 0.2);
-    overflow: hidden;           /* El scroll va en .modal-body */
+    overflow: hidden;
+    position: relative;        /* Contexto de apilamiento propio */
+    z-index: 1001;             /* Encima del overlay (z-index: 1000) */
 }
 
 /* Área scrolleable del contenido */
 .modal-body {
     flex: 1;
     overflow-y: auto;
-    padding: 1.5rem 2rem;
+    padding: 1.2rem 1.8rem;
+    min-height: 0;             /* Necesario para flex+overflow en Firefox */
 }
 
-/* Head: padding propio, no scrolleable */
+/* Head: padding propio, no scrolleable — flex-shrink para que no se comprima */
 .modal-head {
-    padding: 1.4rem 2rem 1rem;
+    padding: 1.2rem 1.8rem 1rem;
     flex-shrink: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 1rem;
+    letter-spacing: .04em;
 }
 
 /* Foot: sticky al fondo, siempre visible */
@@ -1081,13 +1094,7 @@ input  { font-family: inherit; }
 /* ═══════════════════════════════════════════════
    MODALES (form inside)
 ═══════════════════════════════════════════════ */
-.modal-head {
-    display: flex; justify-content: space-between; align-items: center;
-    padding-bottom: 1rem; margin-bottom: 1.2rem;
-    border-bottom: 1px solid var(--border);
-    font-family: var(--font-display); font-weight: 700;
-    font-size: 1rem; letter-spacing: .04em;
-}
+/* .modal-head — definido más arriba, en la sección de estructura modal */
 .modal-close {
     background: transparent; border: none; color: var(--dim);
     font-size: 1rem; cursor: pointer; line-height: 1;
@@ -2096,6 +2103,8 @@ code.serie-code {
 [data-theme="light"] .search-bar input::placeholder { color: #b2bec3; }
 [data-theme="light"] .modal-content  { background: #ffffff; color: #2d3436; }
 [data-theme="light"] .modal-body      { background: #ffffff; }
+[data-theme="light"] .modal-foot      { background: #ffffff; }
+[data-theme="light"] .modal-head      { border-color: rgba(0,0,0,.1); }
 [data-theme="light"] .modal-head     { border-color: rgba(0,0,0,0.1); }
 [data-theme="light"] .modal-foot     { border-color: rgba(0,0,0,0.1); }
 [data-theme="light"] .welcome-banner { background: #ffffff; border-color: rgba(0,0,0,0.1); }
