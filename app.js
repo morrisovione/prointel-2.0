@@ -1870,8 +1870,10 @@ function abrirModalArticulo(id) {
     ).join('');
 
     const htmlModal = `
-        <div class="modal-overlay" id="modal-articulo" onclick="cerrarModalClick(event,'modal-articulo')">
-            <div class="modal-content modal-inventario">
+        <div class="modal-overlay" id="modal-articulo">
+            <!-- Backdrop no cierra este modal — protege series escaneadas -->
+            <div class="modal-content modal-inventario"
+                onclick="event.stopPropagation()">
 
                 <div class="modal-head">
                     <div class="modal-head-left">
@@ -2503,9 +2505,8 @@ async function cargarSalidas() {
             <h2>📤 Salida de Inventario</h2>
             <div class="header-actions">
                 <button class="btn-nav" onclick="cargarSalidas()">↺ Actualizar</button>
-                ${(currentUser?.rol||'').toLowerCase() !== 'tecnico'
-                    ? '<button class="btn-cyan" onclick="abrirModalSalida()">+ Registrar Salida</button>'
-                    : ''}
+                ${/* Técnico puede registrar salidas de su propio material */
+                  '<button class="btn-cyan" onclick="abrirModalSalida()">+ Registrar Salida</button>'}
             </div>
         </div>
         <div class="inv-stats" id="sal-stats">
@@ -2870,7 +2871,8 @@ async function abrirModalSalida() {
     document.body.insertAdjacentHTML('beforeend', `
         <div class="modal-overlay" id="modal-salida">
             <!-- Backdrop no cierra este modal — protege datos del formulario -->
-            <div class="modal-content modal-salida-wide">
+            <div class="modal-content modal-salida-wide"
+                onclick="event.stopPropagation()">
                 <div class="modal-head">
                     <div class="modal-head-left">
                         <span class="modal-icon">📤</span>
@@ -4152,17 +4154,17 @@ function _ocultarBotonesAdmin() {
 
     // Selectores de gestión admin — nunca incluye .btn-cyan globalmente
     const selectoresAdmin = [
-        '.act-btn.act-edit',
-        '.act-btn.act-del',
-        '#btn-importar',
-        '.drop-zone',
-        'button[onclick*="abrirModalArticulo"]',
-        'button[onclick*="abrirModalFactura"]',
-        'button[onclick*="abrirModalSalida"]',
-        'button[onclick*="ejecutarImport"]',
-        'button[onclick*="eliminarArticulo"]',
-        'button[onclick*="eliminarUsuario"]',
-        'button[onclick*="eliminarFactura"]',
+        '.act-btn.act-del',           // Eliminar — nunca permitido al técnico
+        '#btn-importar',              // Importar Excel
+        '.drop-zone',                 // Drop zone de importar
+        'button[onclick*="abrirModalArticulo"]',  // Nuevo artículo en bodega central
+        'button[onclick*="abrirModalFactura"]',   // Nueva factura
+        'button[onclick*="ejecutarImport"]',      // Ejecutar importación
+        'button[onclick*="eliminarArticulo"]',    // Eliminar artículo
+        'button[onclick*="eliminarUsuario"]',     // Eliminar usuario
+        'button[onclick*="eliminarFactura"]',     // Eliminar factura
+        // NOTA: abrirModalSalida NO está aquí — el técnico puede registrar salidas
+        // NOTA: act-btn act-edit NO está aquí — el técnico puede ver comprobantes
     ];
 
     selectoresAdmin.forEach(sel => {
