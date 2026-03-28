@@ -617,6 +617,7 @@ async function abrirModalFactura(id) {
                     <button class="modal-close" onclick="cerrarModal('modal-factura')">✕</button>
                 </div>
                 <form id="form-factura" onsubmit="guardarFactura(event,'${id||''}')">
+                <div class="modal-body">
                     <div class="form-grid">
                         <div class="field">
                             <label>Nº FACTURA
@@ -716,6 +717,7 @@ async function abrirModalFactura(id) {
                             placeholder="Condiciones de pago, observaciones…">${esc(f?.notas||'')}</textarea>
                     </div>
 
+                </div><!-- /modal-body -->
                     <div class="modal-foot">
                         <button type="button" class="btn-ghost-sm"
                             onclick="cerrarModal('modal-factura')">Cancelar</button>
@@ -1880,6 +1882,7 @@ function abrirModalArticulo(id) {
                 </div>
 
                 <form id="form-articulo" onsubmit="guardarArticulo(event,'${id||''}')">
+                <div class="modal-body">
 
                     <!-- CATEGORÍA / TIPO ────────────────────── -->
                     <div class="tipo-switch-wrap">
@@ -2008,9 +2011,23 @@ function abrirModalArticulo(id) {
                             </div>
                             <div class="field">
                                 <label>UNIDAD DE MEDIDA</label>
-                                <input type="text" id="art-unidad"
-                                    placeholder="metros, piezas, rollos…"
-                                    value="${esc(item?.unidad || '')}" />
+                                <div style="display:flex;gap:.5rem;align-items:center">
+                                    <select id="art-unidad-sel"
+                                        onchange="onUnidadChange(this)"
+                                        style="flex:1">
+                                        <option value="und"   ${(!item?.unidad||item?.unidad==='und')   ?'selected':''}>Unidades (und)</option>
+                                        <option value="m"     ${item?.unidad==='m'     ?'selected':''}>Metros (m)</option>
+                                        <option value="rl"    ${item?.unidad==='rl'    ?'selected':''}>Rollos (rl)</option>
+                                        <option value="kt"    ${item?.unidad==='kt'    ?'selected':''}>Kits (kt)</option>
+                                        <option value="pza"   ${item?.unidad==='pza'   ?'selected':''}>Piezas (pza)</option>
+                                        <option value="__otro__" ${item?.unidad&&!['und','m','rl','kt','pza'].includes(item.unidad)?'selected':''}>Otro…</option>
+                                    </select>
+                                    <input type="text" id="art-unidad"
+                                        placeholder="Especificar…"
+                                        value="${esc(item?.unidad || 'und')}"
+                                        class="${item?.unidad&&!['und','m','rl','kt','pza'].includes(item.unidad)?'':'hidden'}"
+                                        style="width:100px;font-family:var(--font-mono);font-size:.85rem" />
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -2022,6 +2039,7 @@ function abrirModalArticulo(id) {
                             placeholder="Observaciones, especificaciones técnicas, garantía…">${esc(item?.notas || '')}</textarea>
                     </div>
 
+                </div><!-- /modal-body -->
                     <div class="modal-foot">
                         <button type="button" class="btn-ghost-sm"
                             onclick="cerrarModal('modal-articulo')">Cancelar</button>
@@ -2135,6 +2153,19 @@ function _aplicarCodigoHistorico(codigo, codigoEl, statusEl, originEl, fuente) {
 
 // ── Lógica de cuadrilla inteligente ──────────────────────
 const CUADRILLAS_FIJAS = ['PRI01','PRI02','PRI03','PRI04','PRI05'];
+
+function onUnidadChange(sel) {
+    const input = document.getElementById('art-unidad');
+    if (!input) return;
+    if (sel.value === '__otro__') {
+        input.classList.remove('hidden');
+        input.value = '';
+        input.focus();
+    } else {
+        input.classList.add('hidden');
+        input.value = sel.value;
+    }
+}
 
 function onCuadrillaChange(sel) {
     const manualEl = document.getElementById('art-cuadrilla-manual');
@@ -2837,7 +2868,8 @@ async function abrirModalSalida() {
     ).join('');
 
     document.body.insertAdjacentHTML('beforeend', `
-        <div class="modal-overlay" id="modal-salida" onclick="cerrarModalClick(event,'modal-salida')">
+        <div class="modal-overlay" id="modal-salida">
+            <!-- Backdrop no cierra este modal — protege datos del formulario -->
             <div class="modal-content modal-salida-wide">
                 <div class="modal-head">
                     <div class="modal-head-left">
@@ -2848,6 +2880,7 @@ async function abrirModalSalida() {
                 </div>
 
                 <form id="form-salida" onsubmit="guardarSalida(event)">
+                <div class="modal-body">
                 <div class="salida-grid">
 
                     <!-- ── Columna izquierda ─────────────── -->
@@ -2978,11 +3011,12 @@ async function abrirModalSalida() {
                     </div>
                 </div>
 
+                </div><!-- /modal-body -->
                 <div class="modal-foot">
                     <button type="button" class="btn-ghost-sm"
                         onclick="cerrarModal('modal-salida')">Cancelar</button>
                     <button type="submit" class="btn-cyan" id="btn-guardar-sal">
-                        Registrar Salida
+                        ✓ Registrar Salida
                     </button>
                 </div>
                 </form>
@@ -3607,6 +3641,7 @@ function abrirModalUsuario(id) {
                     <button class="modal-close" onclick="cerrarModal('modal-usuario')">✕</button>
                 </div>
                 <form id="form-usuario" onsubmit="guardarUsuario(event,'${id||''}')">
+                <div class="modal-body">
                     <div class="form-grid">
 
                         <div class="field field-full">
@@ -3664,6 +3699,7 @@ function abrirModalUsuario(id) {
                         </div>
 
                     </div>
+                </div><!-- /modal-body -->
                     <div class="modal-foot">
                         <button type="button" class="btn-ghost-sm"
                             onclick="cerrarModal('modal-usuario')">Cancelar</button>
