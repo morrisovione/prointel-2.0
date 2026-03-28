@@ -170,6 +170,13 @@ async function handleLogin(e) {
         const userEl = document.getElementById('user-display');
         if (userEl) userEl.textContent = nombre;
 
+        // Actualizar label de rol en sidebar
+        const roleEl = document.querySelector('.su-role');
+        if (roleEl) {
+            const rolMap = { admin:'Administrador', bodega:'Bodega', tecnico:'Técnico' };
+            roleEl.textContent = rolMap[(encontrado.rol||'').toLowerCase()] || 'Operador';
+        }
+
         // ── Guardar en localStorage ───────────────────────
         guardarDatosRecordados(usuario, clave);
         // Persistir sesión para sobrevivir recargas de página
@@ -4181,6 +4188,9 @@ function _ocultarBotonesAdmin() {
         'Exportar', 'Importar'
     ];
     content.querySelectorAll('.btn-cyan, .btn-outline-sm').forEach(el => {
+        // NUNCA ocultar el botón de guardar instalación
+        if (el.id === 'btn-guardar-inst') return;
+
         const txt = (el.textContent || '').trim();
         if (textosAdmin.some(t => txt.includes(t))) {
             el.style.display = 'none';
@@ -4570,6 +4580,17 @@ async function abrirInstalacion() {
 
             </form>`;
     }
+
+    // Forzar visibilidad del botón guardar después de renderizar
+    // (el sistema de permisos puede ocultarlo si no detecta el formulario activo)
+    requestAnimationFrame(() => {
+        const btnGuardar = document.getElementById('btn-guardar-inst');
+        if (btnGuardar) {
+            btnGuardar.style.display  = 'inline-flex';
+            btnGuardar.style.visibility = 'visible';
+            btnGuardar.removeAttribute('hidden');
+        }
+    });
 }
 
 function onInstItemChange(sel) {

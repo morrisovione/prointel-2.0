@@ -2191,15 +2191,6 @@ code.serie-code {
     padding: 1.4rem;
     max-width: 680px;
 }
-.inst-panel-footer {
-    display: flex;
-    justify-content: flex-end;
-    gap: .7rem;
-    padding-top: 1rem;
-    margin-top: .8rem;
-    border-top: 1px solid var(--border);
-}
-
 /* Badge nombre del técnico en el header */
 .su-name-badge {
     font-size: .78rem;
