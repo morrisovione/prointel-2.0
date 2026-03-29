@@ -429,11 +429,7 @@ function cargarServicios() {
                 <div class="card-label">Descargos</div>
                 <div class="card-sub">Registrar material instalado</div>
             </div>
-            <div class="summary-card" onclick="changeTab('salidas')">
-                <div class="card-icon">📤</div>
-                <div class="card-label">Mis Salidas</div>
-                <div class="card-sub">Historial de materiales</div>
-            </div>
+
             ` : `
             <!-- Tarjetas de admin/bodega -->
             <div class="summary-card" onclick="changeTab('bodega')">
@@ -4292,7 +4288,8 @@ async function cargarMisArticulos() {
         const [resStock, resSalidas] = await Promise.all([
             // Stock actual: artículos asignados al técnico
             (() => {
-                let q = window.supabase.from('bodega').select('*').neq('estado','vendido');
+                let q = window.supabase.from('bodega').select('*')
+        .not('estado', 'in', '("vendido","instalado")');
                 if (cuadrilla) {
                     q = q.eq('cuadrilla', cuadrilla);
                 } else {
@@ -4484,7 +4481,8 @@ async function abrirDescargos() {
     const usuario   = currentUser?.usuario || '';
     const cuadrilla = currentUser?.cuadrilla || '';
 
-    let q = window.supabase.from('bodega').select('*').neq('estado','vendido');
+    let q = window.supabase.from('bodega').select('*')
+        .not('estado', 'in', '("vendido","instalado")');
     if (cuadrilla) {
         q = q.eq('cuadrilla', cuadrilla);
     } else {
@@ -4672,24 +4670,41 @@ async function guardarDescargo(e) {
     const btnTxt = btn?.textContent || '📦 Finalizar Descargo';
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Guardando…'; }
 
+    // Debug: ver exactamente qué se enviará a Supabase
+    const datosDescargo = {
+        bodega_id:       item.id,
+        numero_serie:    item.serie || '',
+        modelo:          item.nombre || item.articulo || null,
+        cantidad,
+        motivo:          'instalación',
+        destino,
+        responsable:     currentUser.nombre_completo || currentUser.usuario,
+        cuadrilla:       currentUser.cuadrilla || null,
+        numero_ot:       ot,
+        estado_material: 'instalado',
+        notas
+    };
+    console.log('PROINTEL — datosDescargo:', JSON.stringify(datosDescargo, null, 2));
+
     try {
         // 1. Registrar en salidas (historial del técnico)
-        const { error: errSal } = await window.supabase.from('salidas').insert({
-            bodega_id:       item.id,
-            numero_serie:    item.serie || '',
-            modelo:          item.nombre || item.articulo || null,
-            cantidad,
-            motivo:          'instalación',
-            destino,
-            responsable:     currentUser.nombre_completo || currentUser.usuario,
-            cuadrilla:       currentUser.cuadrilla || null,
-            numero_ot:       ot,
-            estado_material: 'instalado',
-            notas
-        });
+        const { data: salidaData, error: errSal } = await window.supabase
+            .from('salidas')
+            .insert(datosDescargo)
+            .select('id')
+            .maybeSingle();
+
         if (errSal) {
-            throw new Error('Error al registrar descargo [' + (errSal.code||'') + ']: ' + errSal.message);
+            // Mostrar error detallado con código Postgres
+            const detalle = [
+                errSal.message,
+                errSal.details  ? 'Detalle: ' + errSal.details  : null,
+                errSal.hint     ? 'Sugerencia: ' + errSal.hint   : null,
+                errSal.code     ? 'Código: ' + errSal.code       : null,
+            ].filter(Boolean).join(' | ');
+            throw new Error(detalle);
         }
+        console.log('PROINTEL — Salida registrada con ID:', salidaData?.id);
 
         // 2. Actualizar estado en bodega → 'instalado'
         if (item.tipo_material === 'miscelaneo') {
