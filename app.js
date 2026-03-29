@@ -2363,7 +2363,7 @@ async function guardarArticulo(e, id) {
             // Misceláneos — sin serie, con cantidad
             const cantidad = parseInt(document.getElementById('art-cantidad')?.value) || 1;
             const unidad   = document.getElementById('art-unidad')?.value.trim() || null;
-            const payload  = { ...payloadBase, serie: '', cantidad }; // serie vacío para misceláneos (NOT NULL)
+            const payload  = { ...payloadBase, serie: null, cantidad };
             if (unidad) payload.unidad = unidad;
 
             const { error } = id
@@ -4688,7 +4688,7 @@ async function guardarDescargo(e) {
     // Debug: ver exactamente qué se enviará a Supabase
     const datosDescargo = {
         bodega_id:       item.id,
-        numero_serie:    item.serie || '',
+        numero_serie:    item.serie || null,
         modelo:          item.nombre || item.articulo || null,
         cantidad,
         motivo:          'instalación',
