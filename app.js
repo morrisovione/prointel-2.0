@@ -4246,10 +4246,11 @@ async function cargarMisArticulos() {
                 <table class="data-table" id="tabla-mis-art">
                     <thead><tr>
                         <th>#</th><th>ARTÍCULO</th><th>SERIE</th>
-                        <th>ESTADO</th><th>FECHA RECEPCIÓN</th><th>COMPROBANTE</th>
+                        <th>STOCK ACTUAL</th><th>ESTADO</th>
+                        <th>FECHA RECEPCIÓN</th><th>COMPROBANTE</th>
                     </tr></thead>
                     <tbody id="mis-tbody">
-                        <tr><td colspan="6" class="empty-row">⏳ Cargando…</td></tr>
+                        <tr><td colspan="7" class="empty-row">⏳ Cargando…</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -4335,30 +4336,44 @@ async function cargarMisArticulos() {
         const count = document.getElementById('mis-count');
 
         if (!items.length) {
-            tbody.innerHTML = '<tr><td colspan="6" class="empty-row">No tienes artículos asignados. Contacta a bodega central.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" class="empty-row">No tienes artículos asignados. Contacta a bodega central.</td></tr>';
         } else {
             tbody.innerHTML = items.map((item, idx) => {
-                const salidaRel = salidas.find(s =>
+                const salidaRel   = salidas.find(s =>
                     (s.bodega_id && s.bodega_id === item.id) ||
                     (s.numero_serie && s.numero_serie === item.serie)
                 );
                 const fechaRec    = item.fecha_ingreso || item.updated_at || item.created_at;
                 const estadoBadge = (item.estado||'').toLowerCase();
-                return `<tr>
+                const esMisc      = item.tipo_material === 'miscelaneo';
+
+                // Stock actual con unidad y nivel de alerta
+                const stockNum   = esMisc ? (item.cantidad || 0) : 1;
+                const unidad     = item.unidad || 'und';
+                const stockCrit  = esMisc ? stockNum < 5  : stockNum < 1;
+                const stockWarn  = esMisc ? stockNum < 20 : false;
+                const stockColor = stockCrit ? 'var(--danger)' : stockWarn ? '#f39c12' : 'var(--green)';
+                const stockCell  = `<span style="font-family:var(--font-mono);font-weight:700;color:${stockColor}">
+                    ${stockNum} <small style="font-weight:400;color:var(--dim);font-size:.78em">${esc(unidad)}</small>
+                    ${stockCrit ? '⚠️' : stockWarn ? '〽️' : ''}
+                </span>`;
+
+                return `<tr ${stockCrit ? 'style="background:rgba(255,77,109,.05)"' : ''}>
                     <td class="row-num">${idx + 1}</td>
-                    <td class="td-bold">${esc(item.nombre || item.articulo || '—')}</td>
+                    <td>
+                        <div class="td-bold">${esc(item.nombre || item.articulo || '—')}</div>
+                        ${item.codigo ? `<div style="font-size:.7rem;color:var(--dim);font-family:var(--font-mono)">${esc(item.codigo)}</div>` : ''}
+                    </td>
                     <td>${item.serie
                         ? `<code class="serie-code">${esc(item.serie)}</code>`
-                        : '<span class="td-date">—</span>'}</td>
+                        : `<span class="tipo-badge tipo-cantidad" style="font-size:.65rem">MISC</span>`}</td>
+                    <td style="text-align:center">${stockCell}</td>
                     <td><span class="badge badge-${estadoBadge === 'entregado' ? 'reservado' : estadoBadge}">
                         ${esc(item.estado || '—')}
                     </span></td>
                     <td class="td-date">${formatFecha(fechaRec)}</td>
                     <td>${salidaRel
-                        ? `<button class="act-btn act-edit"
-                                onclick="verComprobanteTecnico('${salidaRel.id}')">
-                                📄 Ver
-                           </button>`
+                        ? `<button class="act-btn act-edit" onclick="verComprobanteTecnico('${salidaRel.id}')">📄 Ver</button>`
                         : '<span class="td-date">—</span>'}</td>
                 </tr>`;
             }).join('');
@@ -4396,7 +4411,7 @@ async function cargarMisArticulos() {
         console.error('PROINTEL — cargarMisArticulos:', err);
         const tbody = document.getElementById('mis-tbody');
         if (tbody) tbody.innerHTML =
-            `<tr><td colspan="6" class="empty-row error-msg">❌ ${err.message}</td></tr>`;
+            `<tr><td colspan="7" class="empty-row error-msg">❌ ${err.message}</td></tr>`;
     }
 }
 
