@@ -3237,15 +3237,25 @@ async function buscarArticuloSalida(q) {
             try {
                 const qLow = qClean.toLowerCase();
 
-                // Buscar artículos por nombre o código
+                // Buscar artículos — debug completo
+                console.log('PROINTEL — buscando en articulos, query:', qClean);
+
                 const { data: artData, error: artErr } = await window.supabase
                     .from('articulos')
                     .select('id, codigo, nombre, categoria, unidad_medida')
                     .or(`nombre.ilike.%${qClean}%,codigo.ilike.%${qClean}%`)
                     .limit(8);
 
+                // Siempre mostrar qué devolvió la BD
+                console.log('PROINTEL — articulos recibidos:', artData, 'error:', artErr);
+
                 if (artErr) {
-                    console.error('PROINTEL — buscar articulos:', artErr.code, artErr.message);
+                    console.error('PROINTEL — error detallado:', {
+                        code:    artErr.code,
+                        message: artErr.message,
+                        details: artErr.details,
+                        hint:    artErr.hint,
+                    });
                 }
 
                 // Buscar series disponibles
