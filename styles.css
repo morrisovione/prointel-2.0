@@ -2598,3 +2598,53 @@ code.serie-code {
         padding: .35rem .4rem;
     }
 }
+
+/* ═══════════════════════════════════════════════
+   BUSCADOR DE ARTÍCULOS — UX mejorado
+═══════════════════════════════════════════════ */
+.buscar-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.buscar-wrap input {
+    flex: 1;
+    padding-right: 2.4rem !important;
+}
+
+.buscar-clear-btn {
+    position: absolute;
+    right: .5rem;
+    background: none;
+    border: none;
+    color: var(--dim);
+    cursor: pointer;
+    font-size: .9rem;
+    padding: .2rem .3rem;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color .15s, background .15s;
+    line-height: 1;
+}
+
+.buscar-clear-btn:hover {
+    color: var(--white);
+    background: var(--bg-hover);
+}
+
+/* Highlight del término en sugerencias */
+.sal-sug-item mark {
+    background: rgba(0,200,240,.2);
+    color: var(--cyan);
+    border-radius: 2px;
+    padding: 0 1px;
+}
+
+/* Mejor feedback de foco en sugerencias */
+.sal-sug-item:focus {
+    outline: 2px solid var(--border-cyan);
+    outline-offset: -2px;
+}

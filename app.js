@@ -2912,11 +2912,20 @@ async function abrirModalSalida() {
                                     style="display:none"></span>
                             </label>
                             <div style="position:relative">
-                                <input type="text" id="sal-articulo-buscar"
-                                    placeholder="Escribe 3 letras para buscar…"
-                                    autocomplete="off"
-                                    oninput="buscarArticuloSalida(this.value)"
-                                    onkeydown="navSugerencias(event)" />
+                                <div class="buscar-wrap">
+                                    <input type="text" id="sal-articulo-buscar"
+                                        placeholder="Nombre, código o serie…"
+                                        autocomplete="off"
+                                        oninput="buscarArticuloSalida(this.value)"
+                                        onkeydown="navSugerencias(event)"
+                                        style="padding-right:2.2rem" />
+                                    <button type="button"
+                                        id="sal-buscar-clear"
+                                        class="buscar-clear-btn"
+                                        style="display:none"
+                                        onclick="limpiarBuscadorSalida()"
+                                        title="Limpiar búsqueda">✕</button>
+                                </div>
                                 <div id="sal-sugerencias"
                                     class="sal-sugerencias hidden"></div>
                             </div>
@@ -3177,59 +3186,110 @@ function quitarDelCarrito(idx) {
 
 async function buscarArticuloSalida(q) {
     clearTimeout(_buscarTimer);
-    const sugEl = document.getElementById('sal-sugerencias');
-    if (!q || q.length < 3) {
+    const sugEl  = document.getElementById('sal-sugerencias');
+    const btnX   = document.getElementById('sal-buscar-clear');
+    const qClean = (q || '').trim();
+
+    // Mostrar / ocultar botón ✕
+    if (btnX) btnX.style.display = qClean ? 'flex' : 'none';
+
+    if (!qClean) {
         if (sugEl) sugEl.classList.add('hidden');
         return;
     }
+
+    // Esperar al menos 1 carácter — útil para escaneo de series
+    // Para búsquedas generales, esperar 2+ para evitar ruido
+    const minLen = /^\d/.test(qClean) ? 1 : 2; // números desde 1 char (series/códigos)
+    if (qClean.length < minLen) {
+        if (sugEl) sugEl.classList.add('hidden');
+        return;
+    }
+
     _buscarTimer = setTimeout(async () => {
-        const qLow = q.toLowerCase();
-        // Buscar en caché primero, luego en BD si no hay datos
-        // Filtrar caché: solo disponibles sin asignar
+        const qLow = qClean.toLowerCase();
+
+        // Buscar en caché local primero (más rápido)
         let resultados = cacheInventario.filter(i =>
-            ((i.nombre||'').toLowerCase().includes(qLow) ||
-             (i.articulo||'').toLowerCase().includes(qLow) ||
-             (i.codigo||'').toLowerCase().includes(qLow) ||
-             (i.serie||'').toLowerCase().includes(qLow)) &&
+            ((i.nombre   ||'').toLowerCase().includes(qLow) ||
+             (i.articulo ||'').toLowerCase().includes(qLow) ||
+             (i.codigo   ||'').toLowerCase().includes(qLow) ||
+             (i.serie    ||'').toLowerCase().includes(qLow)) &&
             (i.estado||'').toLowerCase() === 'disponible' &&
             !i.asignado_a
         );
+
+        // Si no hay en caché, consultar Supabase
         if (!resultados.length) {
-            const { data } = await window.supabase
-                .from('bodega')
-                .select('id,nombre,articulo,codigo,serie,tipo_material,cantidad,estado,precio')
-                .or(`nombre.ilike.%${q}%,articulo.ilike.%${q}%,codigo.ilike.%${q}%,serie.ilike.%${q}%`)
-                .eq('estado', 'disponible')   // Solo artículos disponibles
-                .is('asignado_a', null)        // Solo los que no están con un técnico
-                .limit(10);
-            resultados = data || [];
+            try {
+                const { data } = await window.supabase
+                    .from('bodega')
+                    .select('id,nombre,articulo,codigo,serie,tipo_material,cantidad,estado,precio,unidad')
+                    .or(`nombre.ilike.%${qClean}%,articulo.ilike.%${qClean}%,codigo.ilike.%${qClean}%,serie.ilike.%${qClean}%`)
+                    .eq('estado', 'disponible')
+                    .is('asignado_a', null)
+                    .limit(12);
+                resultados = (data || []).filter(i =>
+                    (i.estado||'').toLowerCase() === 'disponible'
+                );
+            } catch (err) {
+                console.warn('PROINTEL — búsqueda fallida:', err.message);
+                resultados = [];
+            }
         }
-        // Filtrar también el caché local para que no aparezcan series entregadas
-        resultados = resultados.filter(i =>
-            (i.estado || '').toLowerCase() === 'disponible'
-        );
+
         if (!sugEl) return;
+
         if (!resultados.length) {
-            sugEl.innerHTML = '<div class="sal-sug-empty">Sin resultados para "' + esc(q) + '"</div>';
+            sugEl.innerHTML = `<div class="sal-sug-empty">
+                Sin coincidencias para "<strong>${esc(qClean)}</strong>"
+                <div style="font-size:.72rem;margin-top:.2rem;color:var(--muted)">
+                    Prueba con nombre, código o número de serie
+                </div>
+            </div>`;
             sugEl.classList.remove('hidden');
             return;
         }
-        sugEl.innerHTML = resultados.slice(0,8).map(i => {
-            const disp = (i.estado||'').toLowerCase() === 'disponible';
-            const cant = i.tipo_material === 'miscelaneo' ? ` · ${i.cantidad||0} uds.` : '';
-            return `<div class="sal-sug-item ${disp?'':'sal-sug-agotado'}"
-                        onclick="seleccionarArticuloSalida(${JSON.stringify(i).replace(/"/g,'&quot;')})">
-                <div class="sal-sug-nombre">${esc(i.nombre||i.articulo||'—')}</div>
+
+        // Detectar coincidencia exacta de serie → auto-seleccionar
+        const exactoSerie = resultados.find(i =>
+            (i.serie||'').toLowerCase() === qLow
+        );
+        if (exactoSerie && resultados.length === 1) {
+            seleccionarArticuloSalida(exactoSerie);
+            return;
+        }
+
+        sugEl.innerHTML = resultados.slice(0, 10).map(i => {
+            const esMisc = i.tipo_material === 'miscelaneo';
+            const stock  = esMisc ? ` · ${i.cantidad||0} ${i.unidad||'und'}` : ' · 1 und';
+            const precio = parseFloat(i.precio||0).toFixed(2);
+
+            // Resaltar el término buscado dentro del nombre
+            const nombre    = esc(i.nombre||i.articulo||'—');
+            const escapeRE  = qLow.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const nombreHL  = nombre.replace(
+                new RegExp('(' + escapeRE + ')', 'gi'),
+                '<mark style="background:rgba(0,200,240,.25);color:var(--cyan);border-radius:2px">$1</mark>'
+            );
+
+            return `<div class="sal-sug-item"
+                    tabindex="0"
+                    onclick="seleccionarArticuloSalida(${JSON.stringify(i).replace(/"/g,'&quot;')})"
+                    onkeydown="if(event.key==='Enter')seleccionarArticuloSalida(${JSON.stringify(i).replace(/"/g,'&quot;')})">
+                <div class="sal-sug-nombre">${nombreHL}</div>
                 <div class="sal-sug-meta">
-                    <code>${esc(i.codigo||i.serie||'sin código')}</code>
-                    <span class="badge badge-${(i.estado||'disponible').toLowerCase()}">${esc(i.estado||'disponible')}</span>
-                    <span>${cant}</span>
-                    <span class="td-price">$${parseFloat(i.precio||0).toFixed(2)}</span>
+                    <code>${esc(i.codigo||'—')}</code>
+                    ${i.serie ? `<span class="serie-code" style="font-size:.68rem">${esc(i.serie)}</span>` : ''}
+                    <span class="badge badge-disponible" style="font-size:.65rem">Disponible</span>
+                    <span style="color:var(--dim);font-size:.78rem">${stock}</span>
+                    <span class="td-price">$${precio}</span>
                 </div>
             </div>`;
         }).join('');
+
         sugEl.classList.remove('hidden');
-    }, 300);
+    }, 250); // Debounce más rápido (250ms vs 300ms)
 }
 
 function seleccionarArticuloSalida(item) {
@@ -3243,8 +3303,14 @@ function seleccionarArticuloSalida(item) {
     const lblEl    = document.getElementById('lbl-identificador');
     const badgeEl  = document.getElementById('sal-tipo-badge');
 
-    if (buscarEl) buscarEl.value = item.nombre || item.articulo || '';
-    if (sugEl)    sugEl.classList.add('hidden');
+    if (buscarEl) {
+        buscarEl.value = item.nombre || item.articulo || '';
+        buscarEl.blur(); // Ocultar teclado en móvil al seleccionar
+    }
+    if (sugEl)  sugEl.classList.add('hidden');
+    // Ocultar botón ✕ del buscador al seleccionar
+    const btnX = document.getElementById('sal-buscar-clear');
+    if (btnX) btnX.style.display = 'none';
 
     // Mostrar stock disponible
     if (stockEl) {
@@ -3278,6 +3344,22 @@ function seleccionarArticuloSalida(item) {
         if (identEl)  { identEl.type = 'number'; identEl.placeholder = '1'; identEl.value = '1'; identEl.min = 1; identEl.max = item.cantidad||999; }
     }
     if (identEl) identEl.focus();
+}
+
+function limpiarBuscadorSalida() {
+    const buscarEl = document.getElementById('sal-articulo-buscar');
+    const sugEl    = document.getElementById('sal-sugerencias');
+    const btnX     = document.getElementById('sal-buscar-clear');
+    const codWrap  = document.getElementById('sal-codigo-interno');
+    const stockEl  = document.getElementById('sal-stock-badge');
+
+    if (buscarEl) { buscarEl.value = ''; buscarEl.focus(); }
+    if (sugEl)    sugEl.classList.add('hidden');
+    if (btnX)     btnX.style.display = 'none';
+    if (codWrap)  codWrap.classList.add('hidden');
+    if (stockEl)  stockEl.style.display = 'none';
+
+    _articuloSeleccionado = null;
 }
 
 function navSugerencias(e) {
