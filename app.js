@@ -611,7 +611,7 @@ async function abrirModalFactura(id) {
     if (cacheInventario.length === 0) {
         const { data } = await window.supabase
             .from('bodega').select('id,nombre,articulo,serie,precio,estado')
-            .eq('estado','disponible');
+            .ilike('estado','disponible');
         itemsDisp = data || [];
     } else {
         itemsDisp = cacheInventario.filter(i => (i.estado||'').toLowerCase() === 'disponible');
@@ -2895,6 +2895,9 @@ async function abrirModalSalida() {
     // Inicializar carrito vacío
     window._listaSalida = [];
 
+    // Forzar recarga de inventario para que el buscador tenga datos frescos
+    cacheInventario = [];
+
     document.body.insertAdjacentHTML('beforeend', `
         <div class="modal-overlay" id="modal-salida">
             <!-- Backdrop bloqueado — protege datos y firma -->
@@ -3230,14 +3233,17 @@ async function buscarArticuloSalida(q) {
     _buscarTimer = setTimeout(async () => {
         const qLow = qClean.toLowerCase();
 
+        // Debug: cuántos items tiene el caché
+        console.log('PROINTEL búsqueda — caché:', cacheInventario.length, 'items, query:', qClean);
+
         // Buscar en caché local primero (más rápido)
         let resultados = cacheInventario.filter(i =>
             ((i.nombre   ||'').toLowerCase().includes(qLow) ||
              (i.articulo ||'').toLowerCase().includes(qLow) ||
              (i.codigo   ||'').toLowerCase().includes(qLow) ||
              (i.serie    ||'').toLowerCase().includes(qLow)) &&
-            (i.estado||'').toLowerCase() === 'disponible' &&
-            !i.asignado_a
+            (i.estado||'').toLowerCase() === 'disponible'
+            // asignado_a: no filtrar aquí, bodega recién ingresada puede tener null o ''
         );
 
         // Si no hay en caché, consultar Supabase
@@ -3247,11 +3253,12 @@ async function buscarArticuloSalida(q) {
                     .from('bodega')
                     .select('id,nombre,articulo,codigo,serie,tipo_material,cantidad,estado,precio,unidad')
                     .or(`nombre.ilike.%${qClean}%,articulo.ilike.%${qClean}%,codigo.ilike.%${qClean}%,serie.ilike.%${qClean}%`)
-                    .eq('estado', 'disponible')
-                    .is('asignado_a', null)
+                    .ilike('estado', 'disponible')   // case-insensitive: DISPONIBLE = disponible
                     .limit(12);
+                // Filtro local: excluir asignados a técnico (null, '' o undefined)
                 resultados = (data || []).filter(i =>
-                    (i.estado||'').toLowerCase() === 'disponible'
+                    (i.estado||'').toLowerCase() === 'disponible' &&
+                    !i.asignado_a
                 );
             } catch (err) {
                 console.warn('PROINTEL — búsqueda fallida:', err.message);
