@@ -2901,6 +2901,7 @@ async function abrirModalSalida() {
 
     document.body.insertAdjacentHTML('beforeend', `
         <div class="modal-overlay" id="modal-salida">
+            <!-- Backdrop bloqueado — stopPropagation en modal-content protege datos y firma -->
             <div class="modal-content modal-salida-wide" onclick="event.stopPropagation()">
 
                 <div class="modal-head">
@@ -4436,20 +4437,22 @@ async function cargarMisArticulos() {
                 }
 
                 // Construir condiciones OR dinámicamente
-                const condiciones = [];
-                if (usuario)    condiciones.push(`asignado_a.eq.${usuario}`);
-                if (usuario)    condiciones.push(`responsable.eq.${usuario}`);
-                if (cuadrilla)  condiciones.push(`cuadrilla.eq.${cuadrilla}`);
+                // Filtrar SOLO por asignado_a — campo exclusivo de propiedad del técnico
+                // cuadrilla NO se usa aquí porque bodega central también tiene cuadrilla
+                const condAsignado = [];
+                if (usuario)  condAsignado.push(`asignado_a.eq.${usuario}`);
                 if (nombre && nombre !== usuario)
-                                condiciones.push(`asignado_a.eq.${nombre}`);
-                if (nombre && nombre !== usuario)
-                                condiciones.push(`responsable.eq.${nombre}`);
+                              condAsignado.push(`asignado_a.eq.${nombre}`);
+
+                if (!condAsignado.length) {
+                    return Promise.resolve({ data: [], error: null });
+                }
 
                 return window.supabase
                     .from('bodega')
                     .select('*')
                     .not('estado', 'in', '("vendido","instalado")')
-                    .or(condiciones.join(','))
+                    .or(condAsignado.join(','))
                     .order('fecha_ingreso', { ascending: false });
             })(),
             // Historial: salidas donde él es el responsable
@@ -4657,21 +4660,18 @@ async function abrirDescargos() {
     const nombre    = currentUser?.nombre_completo || currentUser?.usuario || '';
     const cuadrilla = currentUser?.cuadrilla || '';
 
-    // OR multi-columna — cubre todos los campos que guardarSalida puede escribir
-    const condiciones = [];
-    if (usuario)                    condiciones.push(`asignado_a.eq.${usuario}`);
-    if (usuario)                    condiciones.push(`responsable.eq.${usuario}`);
-    if (cuadrilla)                  condiciones.push(`cuadrilla.eq.${cuadrilla}`);
-    if (nombre && nombre !== usuario) condiciones.push(`asignado_a.eq.${nombre}`);
-    if (nombre && nombre !== usuario) condiciones.push(`responsable.eq.${nombre}`);
+    // Filtrar SOLO por asignado_a — campo exclusivo que escribe guardarSalida
+    const condDesc = [];
+    if (usuario)                      condDesc.push(`asignado_a.eq.${usuario}`);
+    if (nombre && nombre !== usuario) condDesc.push(`asignado_a.eq.${nombre}`);
 
     let stockData = [];
-    if (condiciones.length) {
+    if (condDesc.length) {
         const { data } = await window.supabase
             .from('bodega')
             .select('*')
             .not('estado', 'in', '("vendido","instalado")')
-            .or(condiciones.join(','))
+            .or(condDesc.join(','))
             .order('fecha_ingreso', { ascending: false });
         stockData = data || [];
     }
@@ -4998,22 +4998,26 @@ function _modalTieneDatos(id) {
     const el = document.getElementById(id);
     if (!el) return false;
 
+    // Revisar carrito de salida — si tiene artículos, hay datos
+    if (id === 'modal-salida' && (window._listaSalida || []).length > 0) return true;
+
     // Revisar inputs de texto con valor
     const inputs = el.querySelectorAll('input[type="text"], input[type="number"], textarea');
     for (const inp of inputs) {
-        if ((inp.value || '').trim().length > 0) return true;
+        if (!inp.readOnly && (inp.value || '').trim().length > 0) return true;
     }
 
     // Revisar series escaneadas
-    const chips = el.querySelectorAll('.serie-chip');
-    if (chips.length > 0) return true;
+    if (el.querySelectorAll('.serie-chip').length > 0) return true;
 
     // Revisar firma dibujada
     const canvas = el.querySelector('#firma-canvas');
     if (canvas) {
-        const ctx = canvas.getContext('2d');
-        const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-        if (Array.from(data).some(v => v !== 0)) return true;
+        try {
+            const ctx = canvas.getContext('2d');
+            const px  = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+            if (Array.from(px).some(v => v !== 0)) return true;
+        } catch { /* canvas vacío o CORS */ }
     }
 
     return false;
