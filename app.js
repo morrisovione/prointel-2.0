@@ -348,6 +348,27 @@ function actualizarReloj() {
 function changeTab(tab) {
     currentTab = tab;
 
+    // Marcar botón activo en el menú (desktop y tab bar móvil)
+    document.querySelectorAll('.menu-btn').forEach(btn => {
+        btn.classList.remove('menu-btn-active');
+    });
+    // Resaltar el botón correspondiente al tab
+    const tabToBtn = {
+        'servicios':    '#btn-inicio',
+        'mis-articulos': null, // botón sin ID, buscar por onclick
+    };
+    const sel = tabToBtn[tab];
+    if (sel) {
+        document.querySelector(sel)?.classList.add('menu-btn-active');
+    } else {
+        // Buscar por texto del onclick
+        document.querySelectorAll('.menu-btn').forEach(btn => {
+            if ((btn.getAttribute('onclick')||'').includes(`'${tab}'`)) {
+                btn.classList.add('menu-btn-active');
+            }
+        });
+    }
+
     // Título del topbar
     const titulos = {
         servicios:    'Inicio',

@@ -2412,11 +2412,28 @@ code.serie-code {
         gap: .2rem;
     }
 
-    /* Ocultar elementos del sidebar que no son botones de menú */
+    /* Ocultar elementos que no caben en el tab bar móvil */
     .sidebar .su-card,
     .sidebar .menu-divider,
-    .sidebar .sidebar-footer {
+    .sidebar .sidebar-footer,
+    .sidebar-only-desktop {
         display: none !important;
+    }
+
+    /* Botón Salir en tab bar — color rojo suave */
+    .menu-btn-logout {
+        color: #ff4d6d !important;
+        opacity: .85;
+    }
+    .menu-btn-logout:hover,
+    .menu-btn-logout:active {
+        background: rgba(255,77,109,.12) !important;
+        opacity: 1;
+    }
+
+    /* Botón Inicio — color activo */
+    .menu-btn-inicio {
+        font-weight: 600;
     }
 
     .menu-btn {
@@ -2647,4 +2664,21 @@ code.serie-code {
 .sal-sug-item:focus {
     outline: 2px solid var(--border-cyan);
     outline-offset: -2px;
+}
+
+/* ═══════════════════════════════════════════════
+   MENÚ — Estado activo del tab seleccionado
+═══════════════════════════════════════════════ */
+.menu-btn-active {
+    background: rgba(0,200,240,.12) !important;
+    color: var(--cyan) !important;
+    border-left: 3px solid var(--cyan);
+}
+
+@media (max-width: 768px) {
+    .menu-btn-active {
+        border-left: none;
+        border-bottom: 3px solid var(--cyan);
+        background: rgba(0,200,240,.1) !important;
+    }
 }
