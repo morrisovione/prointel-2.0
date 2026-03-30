@@ -3240,23 +3240,61 @@ async function buscarArticuloSalida(q) {
                 // Buscar artículos — debug completo
                 console.log('PROINTEL — buscando en articulos, query:', qClean);
 
-                const { data: artData, error: artErr } = await window.supabase
-                    .from('articulos')
-                    .select('id, codigo, nombre, categoria, unidad_medida')
-                    .or(`nombre.ilike.%${qClean}%,codigo.ilike.%${qClean}%`)
-                    .limit(8);
+                // Buscar en articulos (esquema nuevo) Y bodega (esquema viejo)
+                // — cubre ambos casos mientras se completa la migración
+                const [resArt, resBodega] = await Promise.all([
+                    window.supabase
+                        .from('articulos')
+                        .select('id, codigo, nombre, categoria, unidad_medida')
+                        .or(`nombre.ilike.%${qClean}%,codigo.ilike.%${qClean}%`)
+                        .limit(8),
+                    window.supabase
+                        .from('bodega')
+                        .select('id, codigo, nombre, articulo, tipo_material, unidad, cantidad, estado')
+                        .or(`nombre.ilike.%${qClean}%,articulo.ilike.%${qClean}%,codigo.ilike.%${qClean}%,serie.ilike.%${qClean}%`)
+                        .ilike('estado', 'disponible')
+                        .is('asignado_a', null)
+                        .limit(8),
+                ]);
 
-                // Siempre mostrar qué devolvió la BD
-                console.log('PROINTEL — articulos recibidos:', artData, 'error:', artErr);
+                console.log('PROINTEL — articulos:', resArt.data?.length, 'bodega:', resBodega.data?.length);
 
-                if (artErr) {
-                    console.error('PROINTEL — error detallado:', {
-                        code:    artErr.code,
-                        message: artErr.message,
-                        details: artErr.details,
-                        hint:    artErr.hint,
-                    });
-                }
+                const artErr = resArt.error;
+                if (artErr) console.error('PROINTEL — articulos error:', artErr.code, artErr.message);
+
+                // Normalizar resultados de ambas fuentes al mismo formato
+                const deArticulos = (resArt.data || []).map(a => ({
+                    _fuente:    'articulos',
+                    _tipo:      a.categoria === 'SERIADO' ? 'articulo' : 'articulo',
+                    art_id:     a.id,
+                    nombre:     a.nombre,
+                    codigo:     a.codigo,
+                    unidad:     a.unidad_medida || 'und',
+                    categoria:  a.categoria,
+                    cantidad:   null,
+                }));
+
+                const deBodega = (resBodega.data || []).map(b => ({
+                    _fuente:    'bodega',
+                    _tipo:      (!b.tipo_material || b.tipo_material === 'seriado') ? 'articulo' : 'articulo',
+                    art_id:     b.id,
+                    nombre:     b.nombre || b.articulo,
+                    codigo:     b.codigo,
+                    unidad:     b.unidad || 'und',
+                    categoria:  (!b.tipo_material || b.tipo_material === 'seriado') ? 'SERIADO' : 'MISCELANEO',
+                    cantidad:   b.cantidad,
+                    _bodega_id: b.id,
+                }));
+
+                // Combinar sin duplicados por código
+                const vistos  = new Set();
+                const artData = [...deArticulos, ...deBodega].filter(a => {
+                    const key = (a.codigo || a.nombre || '').toLowerCase();
+                    if (vistos.has(key)) return false;
+                    vistos.add(key);
+                    return true;
+                });
+                const artErr2 = null; // ya manejado arriba
 
                 // Buscar series disponibles
                 const { data: serData, error: serErr } = await window.supabase
