@@ -2382,3 +2382,219 @@ code.serie-code {
     font-size: .85rem;
     color: var(--white);
 }
+
+/* ═══════════════════════════════════════════════
+   RESPONSIVE MÓVIL — pantallas ≤ 768px
+═══════════════════════════════════════════════ */
+@media (max-width: 768px) {
+
+    /* Layout general */
+    .app-shell {
+        flex-direction: column;
+    }
+
+    /* Sidebar → Tab bar inferior */
+    .sidebar {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        top: auto;
+        width: 100%;
+        height: auto;
+        flex-direction: row;
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding: .3rem .4rem;
+        border-top: 1px solid var(--border);
+        border-right: none;
+        z-index: 500;
+        gap: .2rem;
+    }
+
+    /* Ocultar elementos del sidebar que no son botones de menú */
+    .sidebar .su-card,
+    .sidebar .menu-divider,
+    .sidebar .sidebar-footer {
+        display: none !important;
+    }
+
+    .menu-btn {
+        flex-direction: column;
+        font-size: .65rem;
+        padding: .4rem .5rem;
+        min-width: 60px;
+        gap: .15rem;
+        border-radius: 8px;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+
+    /* Área principal */
+    .main-content {
+        margin-bottom: 70px; /* espacio para tab bar */
+        padding: .8rem;
+    }
+
+    .top-bar {
+        padding: .5rem .8rem;
+    }
+
+    /* Dashboard cards — columna única */
+    .cards-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: .6rem;
+    }
+
+    .summary-card {
+        padding: .9rem .7rem;
+    }
+
+    /* Tablas — scroll horizontal */
+    .table-wrap {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .data-table th,
+    .data-table td {
+        padding: .5rem .6rem;
+        font-size: .78rem;
+        white-space: nowrap;
+    }
+
+    /* Stats */
+    .inv-stats {
+        grid-template-columns: 1fr 1fr;
+        gap: .5rem;
+    }
+
+    /* Modales — pantalla completa */
+    .modal-overlay {
+        padding: 0;
+        align-items: flex-end;
+    }
+
+    .modal-content,
+    .modal-content.modal-inventario,
+    .modal-content.modal-salida-wide {
+        max-width: 100%;
+        width: 100%;
+        max-height: 95vh;
+        border-radius: 16px 16px 0 0;
+    }
+
+    /* Formulario salida — una columna */
+    .salida-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .field-full {
+        grid-column: 1;
+    }
+
+    /* Firma — más alta en móvil */
+    .firma-canvas {
+        width: 100% !important;
+        height: 120px !important;
+    }
+
+    /* Botones touch-friendly */
+    .btn-cyan,
+    .btn-ghost-sm,
+    .btn-outline-sm,
+    .btn-guardar-final {
+        min-height: 44px;
+        padding: .7rem 1.2rem;
+        font-size: .92rem;
+    }
+
+    .act-btn {
+        min-height: 36px;
+        padding: .4rem .7rem;
+        font-size: .8rem;
+    }
+
+    /* Modal foot */
+    .modal-foot {
+        padding: .8rem 1rem 1rem;
+        gap: .5rem;
+    }
+
+    .modal-foot .btn-ghost-sm,
+    .modal-foot .btn-cyan {
+        flex: 1;
+        justify-content: center;
+    }
+
+    /* Toolbar de búsqueda */
+    .inv-toolbar {
+        flex-direction: column;
+        gap: .5rem;
+    }
+
+    .filter-select {
+        width: 100%;
+    }
+
+    /* Module header */
+    .module-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: .5rem;
+    }
+
+    .header-actions {
+        width: 100%;
+        flex-wrap: wrap;
+    }
+
+    /* Mi Bodega pestañas */
+    .mi-bodega-tabs {
+        overflow-x: auto;
+        gap: .2rem;
+    }
+
+    /* Descargos panel */
+    .inst-panel-form {
+        max-width: 100%;
+        padding: 1rem;
+    }
+
+    /* Carrito */
+    .carrito-item {
+        flex-wrap: wrap;
+        gap: .4rem;
+    }
+
+    /* Login */
+    .login-card {
+        padding: 1.5rem 1rem;
+        margin: 1rem;
+    }
+}
+
+/* Pantallas muy pequeñas ≤ 480px */
+@media (max-width: 480px) {
+    .cards-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .inv-stats {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .istat-num {
+        font-size: 1.6rem;
+    }
+
+    .menu-btn {
+        min-width: 52px;
+        font-size: .6rem;
+        padding: .35rem .4rem;
+    }
+}
