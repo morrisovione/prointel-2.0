@@ -2521,6 +2521,7 @@ let _firmaCanvas        = null;
 let _firmaCtx           = null;
 let _firmaDibujando     = false;
 let _articuloSeleccionado = null;
+let _buscarTimer        = null;  // timer del buscador predictivo
 
 async function cargarSalidas() {
     const content = document.getElementById('dashboard-content');
