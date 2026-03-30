@@ -2914,16 +2914,26 @@ function filtrarSalidasLive() {
 async function generarNumeroOT() {
     try {
         const anio = new Date().getFullYear();
-        const { data } = await window.supabase
+
+        const { data, error } = await window.supabase
             .from('registros_salida')
             .select('correlativo')
+            .not('correlativo', 'is', null)
             .order('correlativo', { ascending: false })
             .limit(1)
             .maybeSingle();
 
-        if (!data?.correlativo) return `OT-${anio}-0001`;
-        return `OT-${anio}-${String(data.correlativo + 1).padStart(4, '0')}`;
-    } catch {
+        if (error) {
+            console.error('PROINTEL — generarNumeroOT error:', error.code, error.message);
+            // Si la tabla está vacía o sin permisos, iniciar en 1
+            return `OT-${anio}-0001`;
+        }
+
+        const siguiente = (data?.correlativo || 0) + 1;
+        return `OT-${anio}-${String(siguiente).padStart(4, '0')}`;
+
+    } catch (err) {
+        console.error('PROINTEL — generarNumeroOT excepción:', err.message);
         return `OT-${new Date().getFullYear()}-0001`;
     }
 }
@@ -3162,64 +3172,78 @@ async function buscarArticuloSalida(q) {
             try {
                 const qLow = qClean.toLowerCase();
 
-                // Buscar en articulos por nombre/código
-                const { data: artData } = await window.supabase
+                // Buscar artículos por nombre o código
+                const { data: artData, error: artErr } = await window.supabase
                     .from('articulos')
                     .select('id, codigo, nombre, categoria, unidad_medida')
                     .or(`nombre.ilike.%${qClean}%,codigo.ilike.%${qClean}%`)
                     .limit(8);
 
-                // Buscar series disponibles que coincidan
-                const { data: serData } = await window.supabase
+                if (artErr) {
+                    console.error('PROINTEL — buscar articulos:', artErr.code, artErr.message);
+                }
+
+                // Buscar series disponibles
+                const { data: serData, error: serErr } = await window.supabase
                     .from('series')
-                    .select('id, numero_serie, estado, articulo_id, articulos(id,nombre,codigo,unidad_medida)')
+                    .select('id, numero_serie, estado, articulo_id')
                     .ilike('numero_serie', `%${qClean}%`)
                     .eq('estado', 'DISPONIBLE')
-                    .limit(8);
+                    .limit(6);
 
-                if (!sugEl) return;
+                if (serErr) {
+                    console.error('PROINTEL — buscar series:', serErr.code, serErr.message);
+                }
 
                 const arts   = artData  || [];
                 const series = serData  || [];
 
+                if (!sugEl) return;
+
                 if (!arts.length && !series.length) {
                     sugEl.innerHTML = `<div class="sal-sug-empty">
                         Sin coincidencias para "<strong>${esc(qClean)}</strong>"
-                        <div style="font-size:.72rem;margin-top:.2rem;color:var(--muted)">
-                            Prueba con nombre, código o serie
+                        <div style="font-size:.72rem;margin-top:.3rem;color:var(--muted)">
+                            Busca por nombre o código del artículo
                         </div>
                     </div>`;
                     sugEl.classList.remove('hidden');
                     return;
                 }
 
-                // Auto-selección si serie exacta
+                // Auto-selección por serie exacta
                 const exacta = series.find(s =>
                     (s.numero_serie || '').toLowerCase() === qLow
                 );
                 if (exacta) {
-                    const art = exacta.articulos;
+                    // Buscar el artículo de esta serie
+                    const { data: artSer } = await window.supabase
+                        .from('articulos')
+                        .select('id, nombre, codigo, unidad_medida')
+                        .eq('id', exacta.articulo_id)
+                        .maybeSingle();
+
                     seleccionarArticuloSalida({
-                        _tipo:      'seriado',
-                        art_id:     art.id,
-                        nombre:     art.nombre,
-                        codigo:     art.codigo,
-                        serie_id:   exacta.id,
-                        serie:      exacta.numero_serie,
-                        unidad:     art.unidad_medida || 'und',
-                        cantidad:   1,
+                        _tipo:    'seriado',
+                        art_id:   artSer?.id,
+                        nombre:   artSer?.nombre  || '—',
+                        codigo:   artSer?.codigo  || '',
+                        serie_id: exacta.id,
+                        serie:    exacta.numero_serie,
+                        unidad:   artSer?.unidad_medida || 'und',
+                        cantidad: 1,
                     });
                     return;
                 }
 
-                // Renderizar sugerencias
+                // Renderizar lista de sugerencias
+                const safeQ = qLow.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+                const hlFn  = txt => esc(txt).replace(
+                    new RegExp('(' + safeQ + ')', 'gi'),
+                    '<mark style="background:rgba(0,200,240,.2);color:var(--cyan);border-radius:2px">$1</mark>'
+                );
+
                 const itemsArt = arts.map(a => {
-                    const safeQ = qLow.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
-                    const nombre = esc(a.nombre || '—');
-                    const hl     = nombre.replace(
-                        new RegExp('(' + safeQ + ')', 'gi'),
-                        '<mark style="background:rgba(0,200,240,.2);color:var(--cyan)">$1</mark>'
-                    );
                     const iJSON = JSON.stringify({
                         _tipo:'articulo', art_id:a.id, nombre:a.nombre,
                         codigo:a.codigo, unidad:a.unidad_medida||'und',
@@ -3228,7 +3252,7 @@ async function buscarArticuloSalida(q) {
                     return `<div class="sal-sug-item" tabindex="0"
                             onclick="seleccionarArticuloSalida(${iJSON})"
                             onkeydown="if(event.key==='Enter')seleccionarArticuloSalida(${iJSON})">
-                        <div class="sal-sug-nombre">${hl}</div>
+                        <div class="sal-sug-nombre">${hlFn(a.nombre || '—')}</div>
                         <div class="sal-sug-meta">
                             <code>${esc(a.codigo || '—')}</code>
                             <span class="tipo-badge ${a.categoria==='SERIADO'?'tipo-seriado':'tipo-cantidad'}"
@@ -3239,19 +3263,16 @@ async function buscarArticuloSalida(q) {
                 });
 
                 const itemsSer = series.map(s => {
-                    const art   = s.articulos || {};
                     const iJSON = JSON.stringify({
-                        _tipo:'seriado', art_id:art.id, nombre:art.nombre,
-                        codigo:art.codigo, serie_id:s.id,
-                        serie:s.numero_serie, unidad:art.unidad_medida||'und', cantidad:1,
+                        _tipo:'seriado', art_id:s.articulo_id, nombre:'',
+                        codigo:'', serie_id:s.id,
+                        serie:s.numero_serie, unidad:'und', cantidad:1,
                     }).replace(/"/g,'&quot;');
                     return `<div class="sal-sug-item" tabindex="0"
                             onclick="seleccionarArticuloSalida(${iJSON})"
                             onkeydown="if(event.key==='Enter')seleccionarArticuloSalida(${iJSON})">
-                        <div class="sal-sug-nombre">${esc(art.nombre||'—')}</div>
+                        <div class="sal-sug-nombre">Serie: ${hlFn(s.numero_serie || '—')}</div>
                         <div class="sal-sug-meta">
-                            <code>${esc(art.codigo||'—')}</code>
-                            <code class="serie-code" style="font-size:.68rem">${esc(s.numero_serie||'—')}</code>
                             <span class="badge badge-disponible" style="font-size:.65rem">DISPONIBLE</span>
                         </div>
                     </div>`;
