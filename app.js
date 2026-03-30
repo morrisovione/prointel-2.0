@@ -3247,7 +3247,7 @@ async function buscarArticuloSalida(q) {
                         .from('articulos')
                         .select('id, codigo, nombre, categoria, unidad_medida')
                         .or(`nombre.ilike.%${qClean}%,codigo.ilike.%${qClean}%`)
-                        .limit(8),
+                        .limit(12),
                     window.supabase
                         .from('bodega')
                         .select('id, codigo, nombre, articulo, tipo_material, unidad, cantidad, estado')
@@ -3421,16 +3421,21 @@ function seleccionarArticuloSalida(item) {
     if (sugEl)    sugEl.classList.add('hidden');
     if (btnX)     btnX.style.display = 'none';
 
+    // Detectar tipo — compatible con esquema nuevo (categoria) y viejo (tipo_material)
+    const cat       = (item.categoria || item.tipo_material || '').toUpperCase();
+    const esMisc    = cat === 'MISCELANEO' || cat === 'MISCELÁNEOS';
+    const esSeriado = !esMisc;
+
     // Badge de stock
     if (stockEl) {
-        const esMisc   = item.tipo_material === 'miscelaneo';
-        const stockTxt = esMisc ? `Stock: ${item.cantidad || 0}` : '1 unidad';
-        const ok       = (item.estado || '').toLowerCase() === 'disponible';
-        stockEl.textContent    = stockTxt;
-        stockEl.style.display  = 'inline-block';
+        const maxDisp  = esMisc ? (item.cantidad || 0) : 1;
+        const unidad   = item.unidad || item.unidad_medida || 'und';
+        stockEl.textContent   = esMisc ? `Stock: ${maxDisp} ${unidad}` : '1 unidad';
+        stockEl.style.display = 'inline-block';
+        const ok = esMisc ? maxDisp > 0 : true;
         stockEl.style.background = ok ? 'rgba(0,230,118,.15)' : 'rgba(255,77,109,.15)';
-        stockEl.style.color    = ok ? '#00e676' : '#ff4d6d';
-        stockEl.style.border   = ok
+        stockEl.style.color      = ok ? '#00e676' : '#ff4d6d';
+        stockEl.style.border     = ok
             ? '1px solid rgba(0,230,118,.3)' : '1px solid rgba(255,77,109,.3)';
     }
 
@@ -3440,16 +3445,28 @@ function seleccionarArticuloSalida(item) {
         else              { codWrap.classList.add('hidden'); }
     }
 
-    // Adaptar campo serie/cantidad
-    const esSeriado = !item.tipo_material || item.tipo_material === 'seriado';
+    // Campo dinámico: serie para seriados, cantidad numérica para misceláneos
     if (esSeriado) {
         if (lblEl)   lblEl.innerHTML  = 'NÚMERO DE SERIE <span class="req">*</span>';
-        if (badgeEl) { badgeEl.textContent = 'SERIADO';    badgeEl.className = 'tipo-badge tipo-seriado'; }
-        if (identEl) { identEl.type = 'text'; identEl.placeholder = 'Escanea o escribe la serie…'; identEl.value = item.serie || ''; }
+        if (badgeEl) { badgeEl.textContent = 'SERIADO'; badgeEl.className = 'tipo-badge tipo-seriado'; }
+        if (identEl) {
+            identEl.type        = 'text';
+            identEl.placeholder = 'Escanea o escribe la serie…';
+            identEl.value       = item.serie || '';
+            identEl.removeAttribute('min');
+            identEl.removeAttribute('max');
+        }
     } else {
-        if (lblEl)   lblEl.innerHTML  = 'CANTIDAD A RETIRAR <span class="req">*</span>';
+        const maxStock = item.cantidad || 999;
+        if (lblEl)   lblEl.innerHTML  = `CANTIDAD A RETIRAR <span class="req">*</span> <span style="font-size:.72rem;color:var(--dim)">(máx ${maxStock} ${item.unidad||item.unidad_medida||'und'})</span>`;
         if (badgeEl) { badgeEl.textContent = 'MISCELÁNEOS'; badgeEl.className = 'tipo-badge tipo-cantidad'; }
-        if (identEl) { identEl.type = 'number'; identEl.placeholder = '1'; identEl.value = '1'; identEl.min = 1; identEl.max = item.cantidad || 999; }
+        if (identEl) {
+            identEl.type        = 'number';
+            identEl.placeholder = '1';
+            identEl.value       = '1';
+            identEl.min         = '1';
+            identEl.max         = String(maxStock);
+        }
     }
     if (identEl) identEl.focus();
 }
@@ -3482,45 +3499,58 @@ function autoFillCuadrilla(sel) {
 
 function agregarAlCarritoSalida() {
     if (!_articuloSeleccionado) {
-        _notificar('Selecciona un artículo del buscador primero.'); return;
+        _notificar('Selecciona un artículo del buscador primero.');
+        return;
     }
 
-    const estMat = document.querySelector('input[name="estado_material"]:checked')?.value || 'nuevo';
-    const item   = _articuloSeleccionado;
-    if (!item) { _notificar('Selecciona un artículo primero.'); return; }
+    const estMat  = document.querySelector('input[name="estado_material"]:checked')?.value || 'nuevo';
+    const item    = _articuloSeleccionado;
+    const identEl = document.getElementById('sal-identificador');
+    const identVal = (identEl?.value || '').trim();
 
-    const esSer = item._tipo === 'seriado';
-    const esMisc = item._tipo === 'articulo';
+    // Detectar tipo — compatible con ambos esquemas
+    const cat     = (item.categoria || item.tipo_material || '').toUpperCase();
+    const esMisc  = cat === 'MISCELANEO' || cat === 'MISCELÁNEOS';
+    const esSer   = !esMisc;
 
-    // Seriado — usa serie_id del artículo ya seleccionado
-    if (esSer) {
-        if ((window._listaSalida || []).some(x => x.serie_id === item.serie_id)) {
-            _notificar('La serie ' + (item.serie||'') + ' ya está en la lista.');
-            return;
-        }
+    // Validar serie para seriados
+    if (esSer && !identVal) {
+        _notificar('Ingresa o escanea el número de serie.');
+        identEl?.focus();
+        return;
     }
 
-    // Misceláneo — leer cantidad del campo
-    let cantidad = 1;
-    if (esMisc) {
-        const identEl = document.getElementById('sal-identificador');
-        cantidad = parseInt(identEl?.value || 1) || 1;
+    // Evitar serie duplicada en el carrito
+    if (esSer && (window._listaSalida || []).some(x => x.serie === identVal)) {
+        _notificar('La serie ' + identVal + ' ya está en la lista.');
+        return;
+    }
+
+    // Cantidad para misceláneos
+    const cantidad = esSer ? 1 : (parseInt(identVal) || 1);
+    const maxStock = parseInt(item.cantidad || 0);
+
+    if (esMisc && cantidad > maxStock) {
+        _notificar(`Stock insuficiente. Disponible: ${maxStock}`);
+        return;
     }
 
     window._listaSalida = window._listaSalida || [];
     window._listaSalida.push({
-        _tipo:    item._tipo,
-        art_id:   item.art_id,
-        nombre:   item.nombre || '—',
-        codigo:   item.codigo || '',
-        serie_id: item.serie_id || null,
-        serie:    item.serie    || null,
+        _tipo:          esSer ? 'seriado' : 'misc',
+        art_id:         item.art_id || item.id,
+        _bodega_id:     item._bodega_id || item.id,
+        nombre:         item.nombre || item.articulo || '—',
+        codigo:         item.codigo || '',
+        unidad:         item.unidad || item.unidad_medida || 'und',
+        serie:          esSer ? identVal : null,
+        serie_id:       item.serie_id || null,
         cantidad,
         esSer,
         estado_material: estMat,
     });
 
-    // Limpiar para siguiente artículo
+    // Limpiar solo campos del artículo — mantener OT y técnico
     _articuloSeleccionado = null;
     if (document.getElementById('sal-articulo-buscar'))
         document.getElementById('sal-articulo-buscar').value = '';
@@ -3529,8 +3559,12 @@ function agregarAlCarritoSalida() {
     document.getElementById('sal-sugerencias')?.classList.add('hidden');
     document.getElementById('sal-buscar-clear') &&
         (document.getElementById('sal-buscar-clear').style.display = 'none');
+    document.getElementById('sal-stock-badge') &&
+        (document.getElementById('sal-stock-badge').style.display = 'none');
 
     renderCarritoSalida();
+    // Enfocar de vuelta el buscador para agregar el siguiente
+    setTimeout(() => document.getElementById('sal-articulo-buscar')?.focus(), 50);
 }
 
 function renderCarritoSalida() {
