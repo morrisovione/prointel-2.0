@@ -2682,3 +2682,27 @@ code.serie-code {
         background: rgba(0,200,240,.1) !important;
     }
 }
+
+/* Toast de error / validación */
+.toast-error {
+    position: fixed;
+    bottom: 5rem;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: rgba(255,77,109,.95);
+    color: #fff;
+    font-weight: 600;
+    font-size: .88rem;
+    padding: .7rem 1.4rem;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0,0,0,.4);
+    z-index: 9999;
+    opacity: 0;
+    transition: opacity .3s ease, transform .3s ease;
+    white-space: nowrap;
+    pointer-events: none;
+}
+.toast-error.toast-visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}

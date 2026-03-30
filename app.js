@@ -835,8 +835,8 @@ async function guardarFactura(e, id) {
     const notas   = document.getElementById('fact-notas').value.trim()     || null;
     const desc    = parseFloat(document.getElementById('fact-descuento').value||0);
 
-    if (!numero)  { alert('El número de factura es obligatorio.'); return; }
-    if (!cliente) { alert('El nombre del cliente es obligatorio.'); return; }
+    if (!numero)  { _notificar('El número de factura es obligatorio.'); return; }
+    if (!cliente) { _notificar('El nombre del cliente es obligatorio.'); return; }
 
     // Recolectar líneas
     const lineas = [];
@@ -848,7 +848,7 @@ async function guardarFactura(e, id) {
         if (desc2 || precio > 0) lineas.push({ bodega_id: itemId||null, descripcion: desc2, cantidad: qty, precio_unit: precio, subtotal: qty*precio });
     });
 
-    if (!lineas.length) { alert('Agrega al menos una línea a la factura.'); return; }
+    if (!lineas.length) { _notificar('Agrega al menos una línea a la factura.'); return; }
 
     const subtotal = lineas.reduce((s,l) => s + l.subtotal, 0);
     const total    = Math.max(0, subtotal - desc);
@@ -1199,7 +1199,7 @@ async function cambiarEstadoFactura(id, estadoActual) {
 Nuevo estado (${opciones}):`);
     if (!nuevo) return;
     const val = nuevo.trim().toLowerCase();
-    if (!estados.includes(val)) { alert('Estado no válido. Usa: emitida, pagada o anulada'); return; }
+    if (!estados.includes(val)) { _notificar('Estado no válido. Usa: emitida, pagada o anulada'); return; }
     const { error } = await window.supabase.from('facturas').update({ estado: val }).eq('id', id);
     if (error) { alert('Error: ' + error.message); return; }
     cacheFacturas = [];
@@ -2331,7 +2331,7 @@ async function guardarArticulo(e, id) {
     const notas  = document.getElementById('art-notas').value.trim() || null;
 
     // Validaciones obligatorias
-    if (!nombre) { alert('El nombre del artículo es obligatorio.'); return; }
+    if (!nombre) { _notificar('El nombre del artículo es obligatorio.'); return; }
 
     // Solo para seriados se exige al menos una serie
     if (tipo === 'seriado') {
@@ -3096,7 +3096,6 @@ async function buscarArticuloSalida(q) {
         _buscarTimer = setTimeout(async () => {
             try {
                 const qLow = qClean.toLowerCase().trim();
-                console.log('PROINTEL búsqueda — caché:', cacheInventario.length, 'items, query:', qClean);
 
                 // Buscar en caché primero
                 let resultados = cacheInventario.filter(i =>
@@ -3262,8 +3261,7 @@ function autoFillCuadrilla(sel) {
 
 function agregarAlCarritoSalida() {
     if (!_articuloSeleccionado) {
-        alert('Selecciona un artículo del buscador primero.');
-        return;
+        _notificar('Selecciona un artículo del buscador primero.'); return;
     }
 
     const identEl  = document.getElementById('sal-identificador');
@@ -3375,9 +3373,9 @@ async function guardarSalida(e) {
     const notas   = (document.getElementById('sal-notas')?.value || '').trim()   || null;
     const lista   = window._listaSalida || [];
 
-    if (!ot)           { alert('El número de OT es obligatorio.'); return; }
-    if (!tecnico)      { alert('Selecciona el técnico responsable.'); return; }
-    if (!lista.length) { alert('Agrega al menos un artículo a la lista.'); return; }
+    if (!ot)           { _notificar('El número de OT es obligatorio.'); return; }
+    if (!tecnico)      { _notificar('Selecciona el técnico responsable.'); return; }
+    if (!lista.length) { _notificar('Agrega al menos un artículo a la lista.'); return; }
 
     const btn    = document.getElementById('btn-guardar-sal');
     const btnTxt = btn?.textContent || 'Registrar Salida';
@@ -3854,9 +3852,9 @@ async function guardarUsuario(e, id) {
     const estado         = document.getElementById('usr-estado').value;
 
     // Validaciones básicas
-    if (!nombre_completo) { alert('El nombre completo es obligatorio.'); return; }
-    if (!usuario)         { alert('El usuario es obligatorio.'); return; }
-    if (!id && !clave)    { alert('La contraseña es obligatoria para nuevos usuarios.'); return; }
+    if (!nombre_completo) { _notificar('El nombre completo es obligatorio.'); return; }
+    if (!usuario)         { _notificar('El usuario es obligatorio.'); return; }
+    if (!id && !clave)    { _notificar('La contraseña es obligatoria para nuevos usuarios.'); return; }
 
     // Leer cuadrilla — prioriza manual, siempre en MAYÚSCULAS
     const cuadSel    = document.getElementById('usr-cuadrilla-sel')?.value || '';
@@ -4264,8 +4262,6 @@ function verificarPermisos() {
     }
 }
 
-// Alias legacy
-function aplicarPermisosTecnico() { verificarPermisos(); }
 
 /**
  * Oculta botones de gestión global (Nuevo, Editar, Eliminar).
@@ -4580,7 +4576,7 @@ function switchMiBodegaTab(tab) {
 
 function verComprobanteTecnico(salidaId) {
     const s = cacheSalidas.find(x => x.id === salidaId);
-    if (!s) { alert('No se encontró el registro de salida.'); return; }
+    if (!s) { _notificar('No se encontró el registro de salida.'); return; }
 
     const fecha = s.created_at
         ? new Date(s.created_at).toLocaleDateString('es-SV', {
@@ -4604,7 +4600,6 @@ function verComprobanteTecnico(salidaId) {
     win.document.write('<button class="print-btn" onclick="window.print()">\uD83D\uDDB6 Imprimir / Guardar PDF</button></body></html>');
     win.document.close();
 }
-
 
 
 // ════════════════════════════════════════════════════════════
@@ -4806,11 +4801,11 @@ async function guardarDescargo(e) {
     const destino  = document.getElementById('desc-destino')?.value.trim() || null;
     const notas    = document.getElementById('desc-notas')?.value.trim()   || null;
 
-    if (!ot)     { alert('El número de OT es obligatorio.'); return; }
-    if (!itemId) { alert('Selecciona el material a descargar.'); return; }
+    if (!ot)     { _notificar('El número de OT es obligatorio.'); return; }
+    if (!itemId) { _notificar('Selecciona el material a descargar.'); return; }
 
     const item = (window._misBodegaItems||[]).find(i => String(i.id) === String(itemId));
-    if (!item)   { alert('Artículo no encontrado. Actualiza tu bodega.'); return; }
+    if (!item)   { _notificar('Artículo no encontrado. Actualiza tu bodega.'); return; }
 
     const maxStock = item.tipo_material === 'miscelaneo' ? (item.cantidad||1) : 1;
     if (cantidad > maxStock) {
@@ -4857,7 +4852,6 @@ async function guardarDescargo(e) {
             ].filter(Boolean).join(' | ');
             throw new Error(detalle);
         }
-        console.log('PROINTEL — Salida registrada con ID:', salidaData?.id);
 
         // 2. Actualizar estado en bodega → 'instalado'
         if (item.tipo_material === 'miscelaneo') {
@@ -4888,6 +4882,24 @@ async function guardarDescargo(e) {
         console.error('PROINTEL — guardarDescargo:', err);
     } finally {
         if (btn) { btn.disabled = false; btn.textContent = btnTxt; }
+    }
+}
+
+// ── Notificaciones de validación (alternativa a alert) ───────────────────────
+// Muestra un toast rojo 3 segundos. Si falla, cae a alert nativo.
+function _notificar(msg) {
+    try {
+        const t = document.createElement('div');
+        t.className = 'toast-error';
+        t.textContent = msg;
+        document.body.appendChild(t);
+        requestAnimationFrame(() => t.classList.add('toast-visible'));
+        setTimeout(() => {
+            t.classList.remove('toast-visible');
+            setTimeout(() => t.remove(), 400);
+        }, 3500);
+    } catch {
+        alert(msg);
     }
 }
 
