@@ -2524,19 +2524,26 @@ let _articuloSeleccionado = null;
 let _buscarTimer        = null;  // timer del buscador predictivo
 
 async function cargarSalidas() {
-    const content = document.getElementById('dashboard-content');
-    const esTec   = (currentUser?.rol || '').toUpperCase() === 'TECNICO';
+    const content  = document.getElementById('dashboard-content');
+    const esTec    = (currentUser?.rol || '').toUpperCase() === 'TECNICO';
 
     content.innerHTML = `
         <div class="module-header">
             <h2>📤 Salida de Inventario</h2>
             <div class="header-actions">
                 <button class="btn-nav" onclick="cargarSalidas()">↺ Actualizar</button>
-                ${!esTec ? '<button class="btn-cyan" onclick="abrirModalSalida()">+ Registrar Salida</button>' : ''}
+                <a href="https://speed.cloudflare.com/" target="_blank"
+                    rel="noopener noreferrer"
+                    class="btn-outline-sm"
+                    title="Abrir test de red en pestaña nueva">
+                    ⚡ Probar Red
+                </a>
+                ${!esTec
+                    ? '<button class="btn-cyan" onclick="abrirModalSalida()">+ Registrar Salida</button>'
+                    : ''}
             </div>
         </div>
         <div class="inv-stats" id="sal-stats">
-            <div class="istat loading-placeholder"></div>
             <div class="istat loading-placeholder"></div>
             <div class="istat loading-placeholder"></div>
         </div>
@@ -2551,7 +2558,7 @@ async function cargarSalidas() {
             <table class="data-table" id="tabla-salidas">
                 <thead><tr>
                     <th>#</th><th>CORRELATIVO</th><th>ARTÍCULO</th>
-                    <th>CANTIDAD</th><th>TÉCNICO</th><th>FECHA</th><th>COMPROBANTE</th>
+                    <th>CANTIDAD</th><th>TÉCNICO</th><th>FECHA</th><th>VER</th>
                 </tr></thead>
                 <tbody id="sal-tbody">
                     <tr><td colspan="7" class="empty-row">⏳ Cargando…</td></tr>
@@ -2561,24 +2568,46 @@ async function cargarSalidas() {
         <p class="table-count" id="sal-count"></p>`;
 
     try {
+        // Consulta simple sin join para evitar el error de schema cache
+        // Luego enriquecemos con los datos de articulos y usuarios por separado
         let query = window.supabase
             .from('registros_salida')
-            .select(`
-                id, correlativo, cantidad, fecha, firma,
-                articulos(id, nombre, codigo, categoria, unidad_medida),
-                usuarios(id, nombre_completo, usuario)
-            `)
+            .select('id, correlativo, articulo_id, tecnico_id, cantidad, fecha, firma')
             .order('correlativo', { ascending: false });
 
-        // Técnico solo ve sus propias salidas
         if (esTec && currentUser?.id) {
             query = query.eq('tecnico_id', currentUser.id);
         }
 
-        const { data, error } = await query;
+        const { data: salidas, error } = await query;
         if (error) throw error;
 
-        cacheSalidas = data || [];
+        cacheSalidas = salidas || [];
+
+        // Si hay registros, enriquecer con nombres de articulos y usuarios
+        let artMap = {};
+        let usrMap = {};
+
+        if (cacheSalidas.length) {
+            const artIds = [...new Set(cacheSalidas.map(s => s.articulo_id).filter(Boolean))];
+            const tecIds = [...new Set(cacheSalidas.map(s => s.tecnico_id).filter(Boolean))];
+
+            if (artIds.length) {
+                const { data: arts } = await window.supabase
+                    .from('articulos')
+                    .select('id, nombre, codigo, unidad_medida')
+                    .in('id', artIds);
+                (arts || []).forEach(a => { artMap[a.id] = a; });
+            }
+
+            if (tecIds.length) {
+                const { data: usrs } = await window.supabase
+                    .from('usuarios')
+                    .select('id, nombre_completo, usuario')
+                    .in('id', tecIds);
+                (usrs || []).forEach(u => { usrMap[u.id] = u; });
+            }
+        }
 
         // Stats
         const tot  = cacheSalidas.length;
@@ -2597,35 +2626,52 @@ async function cargarSalidas() {
         const count = document.getElementById('sal-count');
 
         if (!cacheSalidas.length) {
-            tbody.innerHTML = '<tr><td colspan="7" class="empty-row">No hay salidas registradas.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" class="empty-row">No hay registros de salidas disponibles.</td></tr>';
             if (count) count.textContent = '';
             return;
         }
 
         tbody.innerHTML = cacheSalidas.map((s, idx) => {
-            const art  = s.articulos || {};
-            const usr  = s.usuarios  || {};
+            const art   = artMap[s.articulo_id]  || {};
+            const usr   = usrMap[s.tecnico_id]   || {};
             const fecha = s.fecha
                 ? new Date(s.fecha).toLocaleDateString('es-SV')
                 : '—';
             return `<tr>
-                <td class="row-num">${idx+1}</td>
+                <td class="row-num">${idx + 1}</td>
                 <td><code class="sku-code">#${s.correlativo || '—'}</code></td>
-                <td class="td-bold">${esc(art.nombre || '—')}<br>
-                    <span style="font-size:.72rem;color:var(--dim)">${esc(art.codigo||'')}</span></td>
-                <td style="font-family:var(--font-mono)">${s.cantidad || 1} ${esc(art.unidad_medida||'und')}</td>
-                <td style="font-size:.82rem">${esc(usr.nombre_completo || usr.usuario || '—')}</td>
+                <td class="td-bold">
+                    ${esc(art.nombre || '—')}
+                    ${art.codigo
+                        ? `<br><span style="font-size:.7rem;color:var(--dim)">${esc(art.codigo)}</span>`
+                        : ''}
+                </td>
+                <td style="font-family:var(--font-mono)">
+                    ${s.cantidad || 1} ${esc(art.unidad_medida || 'und')}
+                </td>
+                <td style="font-size:.82rem">
+                    ${esc(usr.nombre_completo || usr.usuario || '—')}
+                </td>
                 <td class="td-date">${fecha}</td>
-                <td><button class="act-btn act-edit"
-                    onclick="verFacturaSalida('${s.id}')">👁 Ver</button></td>
+                <td>
+                    <button class="act-btn act-edit"
+                        onclick="verFacturaSalida('${s.id}')">👁 Ver</button>
+                </td>
             </tr>`;
         }).join('');
 
-        if (count) count.textContent = `${tot} línea${tot!==1?'s':''} · ${uniq} correlativo${uniq!==1?'s':''}`;
+        if (count) count.textContent =
+            `${tot} línea${tot !== 1 ? 's' : ''} · ${uniq} correlativo${uniq !== 1 ? 's' : ''}`;
 
     } catch (err) {
+        console.error('PROINTEL — cargarSalidas:', err);
         document.getElementById('sal-tbody').innerHTML =
-            `<tr><td colspan="7" class="empty-row error-msg">❌ ${err.message}</td></tr>`;
+            `<tr><td colspan="7" class="empty-row error-msg">
+                ❌ ${esc(err.message)}
+                <div style="font-size:.75rem;margin-top:.3rem;color:var(--dim)">
+                    Revisa la consola (F12) para más detalles.
+                </div>
+            </td></tr>`;
     }
 }
 
