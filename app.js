@@ -2842,23 +2842,38 @@ function filtrarSalidasLive() {
 
 async function generarNumeroOT() {
     try {
-        const { data } = await window.supabase
+        const anio = new Date().getFullYear();
+
+        // Buscar el último OT por número más alto (no por fecha)
+        const { data, error } = await window.supabase
             .from('salidas')
             .select('numero_ot')
             .not('numero_ot', 'is', null)
             .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
+            .limit(50); // traer varios para encontrar el mayor
 
-        const anio = new Date().getFullYear();
-        if (!data?.numero_ot) return `OT-${anio}-0001`;
+        if (error || !data?.length) return `OT-${anio}-0001`;
 
-        const s = String(data.numero_ot);
-        const m = s.match(/OT-\d{4}-(\d+)$/i);
-        if (m) return `OT-${anio}-${String(parseInt(m[1]) + 1).padStart(4, '0')}`;
-        const n = s.match(/^(\d+)$/);
-        if (n) return String(parseInt(n[1]) + 1);
-        return `OT-${anio}-0001`;
+        // Extraer el número más alto del patrón OT-YYYY-NNNN
+        let maxNum = 0;
+        for (const row of data) {
+            const s = String(row.numero_ot || '');
+            const m = s.match(/OT-\d{4}-(\d+)$/i);
+            if (m) {
+                const n = parseInt(m[1], 10);
+                if (n > maxNum) maxNum = n;
+            }
+            // También manejar formatos numéricos simples
+            const n2 = s.match(/^(\d+)$/);
+            if (n2) {
+                const n = parseInt(n2[1], 10);
+                if (n > maxNum) maxNum = n;
+            }
+        }
+
+        if (maxNum === 0) return `OT-${anio}-0001`;
+        return `OT-${anio}-${String(maxNum + 1).padStart(4, '0')}`;
+
     } catch {
         return `OT-${new Date().getFullYear()}-0001`;
     }
@@ -2904,10 +2919,20 @@ async function abrirModalSalida() {
                     <div class="salida-col">
 
                         <div class="field">
-                            <label>Nº OT / TICKET <span class="req">*</span></label>
+                            <label>Nº OT / TICKET
+                                <span style="font-size:.65rem;color:var(--cyan);
+                                    background:rgba(0,200,240,.08);
+                                    border:1px solid var(--border-cyan);
+                                    padding:.1rem .4rem;border-radius:3px;
+                                    margin-left:.3rem">
+                                    ⚡ Auto-generado
+                                </span>
+                            </label>
                             <input type="text" id="sal-ot" required
-                                placeholder="OT-2026-0001"
-                                style="font-family:var(--font-mono)" />
+                                readonly
+                                style="font-family:var(--font-mono);
+                                       font-weight:700;letter-spacing:.06em;
+                                       opacity:.85;cursor:not-allowed" />
                         </div>
 
                         <div class="field">
@@ -3459,11 +3484,13 @@ async function guardarSalida(e) {
             }
         }
 
-        // Éxito
+        // Éxito — mostrar correlativo generado
+        const otGenerado = ot;
         window._listaSalida  = [];
         window._articuloSeleccionado = null;
         cacheInventario = [];
         cerrarModal('modal-salida', true);
+        _mostrarToastExito(`✅ OT ${otGenerado} registrada con ${lote.length} artículo${lote.length !== 1 ? 's' : ''}`);
         cargarSalidas();
 
     } catch (err) {
