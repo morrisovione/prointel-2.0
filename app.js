@@ -4652,38 +4652,56 @@ async function abrirDescargos() {
             <p class="loading-msg">⏳ Cargando tu stock…</p>`;
     }
 
-    // Cargar stock del técnico
+    // Cargar SOLO el stock personal del técnico
     const usuario   = currentUser?.usuario || '';
+    const nombre    = currentUser?.nombre_completo || currentUser?.usuario || '';
     const cuadrilla = currentUser?.cuadrilla || '';
 
-    let q = window.supabase.from('bodega').select('*')
-        .not('estado', 'in', '("vendido","instalado")');
-    if (cuadrilla) {
-        q = q.eq('cuadrilla', cuadrilla);
-    } else {
-        q = q.or(`asignado_a.eq.${usuario},responsable.eq.${usuario}`);
+    // OR multi-columna — cubre todos los campos que guardarSalida puede escribir
+    const condiciones = [];
+    if (usuario)                    condiciones.push(`asignado_a.eq.${usuario}`);
+    if (usuario)                    condiciones.push(`responsable.eq.${usuario}`);
+    if (cuadrilla)                  condiciones.push(`cuadrilla.eq.${cuadrilla}`);
+    if (nombre && nombre !== usuario) condiciones.push(`asignado_a.eq.${nombre}`);
+    if (nombre && nombre !== usuario) condiciones.push(`responsable.eq.${nombre}`);
+
+    let stockData = [];
+    if (condiciones.length) {
+        const { data } = await window.supabase
+            .from('bodega')
+            .select('*')
+            .not('estado', 'in', '("vendido","instalado")')
+            .or(condiciones.join(','))
+            .order('fecha_ingreso', { ascending: false });
+        stockData = data || [];
     }
 
-    const { data } = await q.order('fecha_ingreso', { ascending: false });
-    window._misBodegaItems = data || [];
+    window._misBodegaItems = stockData;
 
-    const disponibles = window._misBodegaItems.filter(
+    const disponibles = stockData.filter(
         i => !['vendido','instalado'].includes((i.estado||'').toLowerCase())
     );
 
     const optsItems = disponibles.length
         ? disponibles.map(i => {
-            const max   = i.tipo_material === 'miscelaneo' ? (i.cantidad||1) : 1;
-            const label = `${i.nombre||i.articulo||'Sin nombre'}${i.serie ? ' — ' + i.serie : ''} · ${max} disp.`;
+            const esMisc = i.tipo_material === 'miscelaneo';
+            // Stock PERSONAL del técnico — cantidad real en su poder
+            const stockPersonal = esMisc ? (i.cantidad || 0) : 1;
+            const unidad = i.unidad || 'und';
+            const label = esMisc
+                ? `${i.nombre||i.articulo||'Sin nombre'} — Mi stock: ${stockPersonal} ${unidad}`
+                : `${i.nombre||i.articulo||'Sin nombre'} — Serie: ${i.serie||'sin serie'}`;
             return `<option value="${i.id}"
-                data-max="${max}"
+                data-max="${stockPersonal}"
                 data-nombre="${esc(i.nombre||i.articulo||'')}"
                 data-serie="${esc(i.serie||'')}"
-                data-codigo="${esc(i.codigo||'')}">
+                data-codigo="${esc(i.codigo||'')}"
+                data-unidad="${esc(unidad)}"
+                data-es-misc="${esMisc}">
                 ${esc(label)}
             </option>`;
         }).join('')
-        : '<option value="" disabled>Sin material disponible en tu bodega</option>';
+        : '<option value="" disabled>No tienes material en tu bodega personal</option>';
 
     if (content) {
         content.innerHTML = `
@@ -4772,8 +4790,10 @@ async function abrirDescargos() {
 
 function onDescItemChange(sel) {
     const opt      = sel.options[sel.selectedIndex];
-    const maxStock = parseInt(opt.getAttribute('data-max')||1);
-    const codigo   = opt.getAttribute('data-codigo')||'';
+    const maxStock = parseInt(opt.getAttribute('data-max') || 0);
+    const codigo   = opt.getAttribute('data-codigo') || '';
+    const unidad   = opt.getAttribute('data-unidad') || 'und';
+    const esMisc   = opt.getAttribute('data-es-misc') === 'true';
 
     const cantEl  = document.getElementById('desc-cantidad');
     const badgeEl = document.getElementById('desc-stock-badge');
@@ -4782,16 +4802,27 @@ function onDescItemChange(sel) {
     const errEl   = document.getElementById('desc-cant-error');
     const btnEl   = document.getElementById('btnGuardarDescargo');
 
-    if (cantEl) { cantEl.max = maxStock; cantEl.value = 1; }
+    if (cantEl) {
+        cantEl.max   = maxStock;
+        cantEl.value = esMisc ? 1 : 1;
+        // Seriado: solo puede descargar 1
+        if (!esMisc) { cantEl.max = 1; cantEl.readOnly = true; }
+        else          { cantEl.readOnly = false; }
+    }
     if (errEl)  errEl.style.display = 'none';
-    if (btnEl)  btnEl.disabled = false;
+    if (btnEl)  btnEl.disabled = (maxStock <= 0);
 
     if (badgeEl) {
-        badgeEl.textContent   = `Stock: ${maxStock}`;
-        badgeEl.style.display = 'inline-block';
-        badgeEl.style.background = maxStock > 0 ? 'rgba(0,230,118,.15)' : 'rgba(255,77,109,.15)';
-        badgeEl.style.color   = maxStock > 0 ? '#00e676' : '#ff4d6d';
-        badgeEl.style.border  = maxStock > 0 ? '1px solid rgba(0,230,118,.3)' : '1px solid rgba(255,77,109,.3)';
+        // Mostrar stock PERSONAL del técnico con unidad
+        const ok = maxStock > 0;
+        badgeEl.textContent   = ok
+            ? `Mi stock: ${maxStock} ${unidad}`
+            : 'Sin stock disponible';
+        badgeEl.style.display  = 'inline-block';
+        badgeEl.style.background = ok ? 'rgba(0,230,118,.15)' : 'rgba(255,77,109,.15)';
+        badgeEl.style.color    = ok ? '#00e676' : '#ff4d6d';
+        badgeEl.style.border   = ok
+            ? '1px solid rgba(0,230,118,.3)' : '1px solid rgba(255,77,109,.3)';
     }
 
     if (codWrap && codVal) {
@@ -4801,12 +4832,20 @@ function onDescItemChange(sel) {
 }
 
 function validarCantidadDesc(input) {
-    const max      = parseInt(input.max||1);
-    const val      = parseInt(input.value||0);
+    const max      = parseInt(input.max || 0);
+    const val      = parseInt(input.value || 0);
     const invalido = val > max || val < 1;
     const errEl    = document.getElementById('desc-cant-error');
     const btnEl    = document.getElementById('btnGuardarDescargo');
-    if (errEl) errEl.style.display = invalido ? 'block' : 'none';
+
+    if (errEl) {
+        errEl.style.display = invalido ? 'block' : 'none';
+        if (val > max) {
+            errEl.textContent = `⚠️ No tienes suficiente material. Tu stock personal: ${max} unidades.`;
+        } else if (val < 1) {
+            errEl.textContent = '⚠️ La cantidad debe ser al menos 1.';
+        }
+    }
     if (btnEl) btnEl.disabled = invalido;
 }
 
