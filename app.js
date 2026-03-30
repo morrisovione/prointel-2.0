@@ -2525,17 +2525,17 @@ let _buscarTimer        = null;  // timer del buscador predictivo
 
 async function cargarSalidas() {
     const content = document.getElementById('dashboard-content');
+    const esTec   = (currentUser?.rol || '').toUpperCase() === 'TECNICO';
+
     content.innerHTML = `
         <div class="module-header">
             <h2>📤 Salida de Inventario</h2>
             <div class="header-actions">
                 <button class="btn-nav" onclick="cargarSalidas()">↺ Actualizar</button>
-                ${/* Técnico puede registrar salidas de su propio material */
-                  '<button class="btn-cyan" onclick="abrirModalSalida()">+ Registrar Salida</button>'}
+                ${!esTec ? '<button class="btn-cyan" onclick="abrirModalSalida()">+ Registrar Salida</button>' : ''}
             </div>
         </div>
         <div class="inv-stats" id="sal-stats">
-            <div class="istat loading-placeholder"></div>
             <div class="istat loading-placeholder"></div>
             <div class="istat loading-placeholder"></div>
             <div class="istat loading-placeholder"></div>
@@ -2543,64 +2543,89 @@ async function cargarSalidas() {
         <div class="inv-toolbar">
             <div class="search-bar" style="flex:1">
                 <input type="text" id="sal-search"
-                    placeholder="🔍  Buscar por serie, destino, OT, responsable…"
+                    placeholder="🔍  Buscar por correlativo, artículo, técnico…"
                     oninput="filtrarTabla('sal-search','tabla-salidas')" />
             </div>
-            <select id="filtro-sal-motivo" onchange="filtrarSalidasLive()" class="filter-select">
-                <option value="">Todos los motivos</option>
-                <option value="instalación">Instalación</option>
-                <option value="venta">Venta</option>
-                <option value="préstamo">Préstamo</option>
-                <option value="traslado">Traslado</option>
-                <option value="daño">Daño / Baja</option>
-            </select>
         </div>
         <div class="table-wrap">
             <table class="data-table" id="tabla-salidas">
                 <thead><tr>
-                    <th>#</th><th>OT / TICKET</th><th>ARTÍCULO</th>
-                    <th>SERIE / CANT.</th><th>MOTIVO</th><th>TÉCNICO</th>
-                    <th>ESTADO MAT.</th><th>FECHA</th><th>ACCIONES</th>
+                    <th>#</th><th>CORRELATIVO</th><th>ARTÍCULO</th>
+                    <th>CANTIDAD</th><th>TÉCNICO</th><th>FECHA</th><th>COMPROBANTE</th>
                 </tr></thead>
                 <tbody id="sal-tbody">
-                    <tr><td colspan="9" class="empty-row">⏳ Cargando salidas…</td></tr>
+                    <tr><td colspan="7" class="empty-row">⏳ Cargando…</td></tr>
                 </tbody>
             </table>
         </div>
         <p class="table-count" id="sal-count"></p>`;
 
     try {
-        // Técnico: solo ve sus propias salidas
-        // Admin/Bodega: ve todas
-        const esTecnico = (currentUser?.rol || '').toLowerCase() === 'tecnico';
-        let queryS = window.supabase.from('salidas').select('*');
+        let query = window.supabase
+            .from('registros_salida')
+            .select(`
+                id, correlativo, cantidad, fecha, firma,
+                articulos(id, nombre, codigo, categoria, unidad_medida),
+                usuarios(id, nombre_completo, usuario)
+            `)
+            .order('correlativo', { ascending: false });
 
-        if (esTecnico) {
-            const usuario = currentUser.nombre_completo || currentUser.usuario;
-            queryS = queryS.or(
-                `responsable.eq.${usuario},cuadrilla.eq.${currentUser.cuadrilla || usuario}`
-            );
+        // Técnico solo ve sus propias salidas
+        if (esTec && currentUser?.id) {
+            query = query.eq('tecnico_id', currentUser.id);
         }
 
-        const { data, error } = await queryS.order('created_at', { ascending: false });
+        const { data, error } = await query;
         if (error) throw error;
+
         cacheSalidas = data || [];
-        renderSalidas(cacheSalidas);
 
+        // Stats
         const tot  = cacheSalidas.length;
-        const inst = cacheSalidas.filter(s => (s.motivo||'').toLowerCase().includes('instalac')).length;
-        const vent = cacheSalidas.filter(s => (s.motivo||'').toLowerCase().includes('venta')).length;
-        const pres = cacheSalidas.filter(s => (s.motivo||'').toLowerCase().includes('préstamo')||s.motivo?.toLowerCase().includes('prestamo')).length;
-
+        const uniq = new Set(cacheSalidas.map(s => s.correlativo)).size;
         document.getElementById('sal-stats').innerHTML = `
-            <div class="istat"><span class="istat-num">${tot}</span><span class="istat-label">Total salidas</span></div>
-            <div class="istat istat-blue"><span class="istat-num">${inst}</span><span class="istat-label">Instalaciones</span></div>
-            <div class="istat istat-cyan"><span class="istat-num">${vent}</span><span class="istat-label">Ventas</span></div>
-            <div class="istat istat-warn"><span class="istat-num">${pres}</span><span class="istat-label">Préstamos</span></div>`;
+            <div class="istat">
+                <span class="istat-num">${tot}</span>
+                <span class="istat-label">Líneas totales</span>
+            </div>
+            <div class="istat istat-cyan">
+                <span class="istat-num">${uniq}</span>
+                <span class="istat-label">Correlativos</span>
+            </div>`;
 
-    } catch(err) {
+        const tbody = document.getElementById('sal-tbody');
+        const count = document.getElementById('sal-count');
+
+        if (!cacheSalidas.length) {
+            tbody.innerHTML = '<tr><td colspan="7" class="empty-row">No hay salidas registradas.</td></tr>';
+            if (count) count.textContent = '';
+            return;
+        }
+
+        tbody.innerHTML = cacheSalidas.map((s, idx) => {
+            const art  = s.articulos || {};
+            const usr  = s.usuarios  || {};
+            const fecha = s.fecha
+                ? new Date(s.fecha).toLocaleDateString('es-SV')
+                : '—';
+            return `<tr>
+                <td class="row-num">${idx+1}</td>
+                <td><code class="sku-code">#${s.correlativo || '—'}</code></td>
+                <td class="td-bold">${esc(art.nombre || '—')}<br>
+                    <span style="font-size:.72rem;color:var(--dim)">${esc(art.codigo||'')}</span></td>
+                <td style="font-family:var(--font-mono)">${s.cantidad || 1} ${esc(art.unidad_medida||'und')}</td>
+                <td style="font-size:.82rem">${esc(usr.nombre_completo || usr.usuario || '—')}</td>
+                <td class="td-date">${fecha}</td>
+                <td><button class="act-btn act-edit"
+                    onclick="verFacturaSalida('${s.id}')">👁 Ver</button></td>
+            </tr>`;
+        }).join('');
+
+        if (count) count.textContent = `${tot} línea${tot!==1?'s':''} · ${uniq} correlativo${uniq!==1?'s':''}`;
+
+    } catch (err) {
         document.getElementById('sal-tbody').innerHTML =
-            `<tr><td colspan="8" class="empty-row error-msg">❌ ${err.message}</td></tr>`;
+            `<tr><td colspan="7" class="empty-row error-msg">❌ ${err.message}</td></tr>`;
     }
 }
 
@@ -2843,37 +2868,15 @@ function filtrarSalidasLive() {
 async function generarNumeroOT() {
     try {
         const anio = new Date().getFullYear();
+        const { data } = await window.supabase
+            .from('registros_salida')
+            .select('correlativo')
+            .order('correlativo', { ascending: false })
+            .limit(1)
+            .maybeSingle();
 
-        // Buscar el último OT por número más alto (no por fecha)
-        const { data, error } = await window.supabase
-            .from('salidas')
-            .select('numero_ot')
-            .not('numero_ot', 'is', null)
-            .order('created_at', { ascending: false })
-            .limit(50); // traer varios para encontrar el mayor
-
-        if (error || !data?.length) return `OT-${anio}-0001`;
-
-        // Extraer el número más alto del patrón OT-YYYY-NNNN
-        let maxNum = 0;
-        for (const row of data) {
-            const s = String(row.numero_ot || '');
-            const m = s.match(/OT-\d{4}-(\d+)$/i);
-            if (m) {
-                const n = parseInt(m[1], 10);
-                if (n > maxNum) maxNum = n;
-            }
-            // También manejar formatos numéricos simples
-            const n2 = s.match(/^(\d+)$/);
-            if (n2) {
-                const n = parseInt(n2[1], 10);
-                if (n > maxNum) maxNum = n;
-            }
-        }
-
-        if (maxNum === 0) return `OT-${anio}-0001`;
-        return `OT-${anio}-${String(maxNum + 1).padStart(4, '0')}`;
-
+        if (!data?.correlativo) return `OT-${anio}-0001`;
+        return `OT-${anio}-${String(data.correlativo + 1).padStart(4, '0')}`;
     } catch {
         return `OT-${new Date().getFullYear()}-0001`;
     }
@@ -3099,57 +3102,41 @@ async function abrirModalSalida() {
 async function buscarArticuloSalida(q) {
     try {
         clearTimeout(_buscarTimer);
-
-        const sugEl = document.getElementById('sal-sugerencias');
-        const btnX  = document.getElementById('sal-buscar-clear');
+        const sugEl  = document.getElementById('sal-sugerencias');
+        const btnX   = document.getElementById('sal-buscar-clear');
         const qClean = (q || '').trim();
 
         if (btnX) btnX.style.display = qClean ? 'flex' : 'none';
+        if (!qClean) { if (sugEl) sugEl.classList.add('hidden'); return; }
 
-        if (!qClean) {
-            if (sugEl) sugEl.classList.add('hidden');
-            return;
-        }
-
-        // Series/códigos numéricos: buscar desde 1 char
-        // Texto: desde 2 chars
         const minLen = /^\d/.test(qClean) ? 1 : 2;
-        if (qClean.length < minLen) {
-            if (sugEl) sugEl.classList.add('hidden');
-            return;
-        }
+        if (qClean.length < minLen) { if (sugEl) sugEl.classList.add('hidden'); return; }
 
         _buscarTimer = setTimeout(async () => {
             try {
-                const qLow = qClean.toLowerCase().trim();
+                const qLow = qClean.toLowerCase();
 
-                // Buscar en caché primero
-                let resultados = cacheInventario.filter(i =>
-                    (i.estado || '').toLowerCase() === 'disponible' &&
-                    (
-                        (i.nombre   || '').toLowerCase().includes(qLow) ||
-                        (i.articulo || '').toLowerCase().includes(qLow) ||
-                        (i.codigo   || '').toLowerCase().includes(qLow) ||
-                        (i.serie    || '').toLowerCase().includes(qLow)
-                    )
-                );
+                // Buscar en articulos por nombre/código
+                const { data: artData } = await window.supabase
+                    .from('articulos')
+                    .select('id, codigo, nombre, categoria, unidad_medida')
+                    .or(`nombre.ilike.%${qClean}%,codigo.ilike.%${qClean}%`)
+                    .limit(8);
 
-                // Si caché vacío, consultar BD directamente
-                if (!resultados.length) {
-                    const { data } = await window.supabase
-                        .from('bodega')
-                        .select('id,nombre,articulo,codigo,serie,tipo_material,cantidad,estado,precio,unidad')
-                        .or(`nombre.ilike.%${qClean}%,articulo.ilike.%${qClean}%,codigo.ilike.%${qClean}%,serie.ilike.%${qClean}%`)
-                        .ilike('estado', 'disponible')
-                        .limit(12);
-                    resultados = (data || []).filter(i =>
-                        (i.estado || '').toLowerCase() === 'disponible'
-                    );
-                }
+                // Buscar series disponibles que coincidan
+                const { data: serData } = await window.supabase
+                    .from('series')
+                    .select('id, numero_serie, estado, articulo_id, articulos(id,nombre,codigo,unidad_medida)')
+                    .ilike('numero_serie', `%${qClean}%`)
+                    .eq('estado', 'DISPONIBLE')
+                    .limit(8);
 
                 if (!sugEl) return;
 
-                if (!resultados.length) {
+                const arts   = artData  || [];
+                const series = serData  || [];
+
+                if (!arts.length && !series.length) {
                     sugEl.innerHTML = `<div class="sal-sug-empty">
                         Sin coincidencias para "<strong>${esc(qClean)}</strong>"
                         <div style="font-size:.72rem;margin-top:.2rem;color:var(--muted)">
@@ -3160,47 +3147,75 @@ async function buscarArticuloSalida(q) {
                     return;
                 }
 
-                // Auto-seleccionar si serie exacta y un solo resultado
-                const exacto = resultados.find(i =>
-                    (i.serie || '').toLowerCase() === qLow
+                // Auto-selección si serie exacta
+                const exacta = series.find(s =>
+                    (s.numero_serie || '').toLowerCase() === qLow
                 );
-                if (exacto && resultados.length === 1) {
-                    seleccionarArticuloSalida(exacto);
+                if (exacta) {
+                    const art = exacta.articulos;
+                    seleccionarArticuloSalida({
+                        _tipo:      'seriado',
+                        art_id:     art.id,
+                        nombre:     art.nombre,
+                        codigo:     art.codigo,
+                        serie_id:   exacta.id,
+                        serie:      exacta.numero_serie,
+                        unidad:     art.unidad_medida || 'und',
+                        cantidad:   1,
+                    });
                     return;
                 }
 
-                // Renderizar sugerencias con highlight
-                sugEl.innerHTML = resultados.slice(0, 10).map(i => {
-                    const esMisc   = i.tipo_material === 'miscelaneo';
-                    const stock    = esMisc
-                        ? `${i.cantidad || 0} ${i.unidad || 'und'}`
-                        : '1 und';
-                    const nombre   = esc(i.nombre || i.articulo || '—');
-                    // Escapar caracteres especiales para usar en RegExp
-                    const safeQ    = qLow.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
-                    const nombreHL = nombre.replace(
+                // Renderizar sugerencias
+                const itemsArt = arts.map(a => {
+                    const safeQ = qLow.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+                    const nombre = esc(a.nombre || '—');
+                    const hl     = nombre.replace(
                         new RegExp('(' + safeQ + ')', 'gi'),
-                        '<mark style="background:rgba(0,200,240,.2);color:var(--cyan);border-radius:2px">$1</mark>'
+                        '<mark style="background:rgba(0,200,240,.2);color:var(--cyan)">$1</mark>'
                     );
-                    const itemJSON = JSON.stringify(i).replace(/"/g, '&quot;');
+                    const iJSON = JSON.stringify({
+                        _tipo:'articulo', art_id:a.id, nombre:a.nombre,
+                        codigo:a.codigo, unidad:a.unidad_medida||'und',
+                        categoria:a.categoria, cantidad:null,
+                    }).replace(/"/g,'&quot;');
                     return `<div class="sal-sug-item" tabindex="0"
-                            onclick="seleccionarArticuloSalida(${itemJSON})"
-                            onkeydown="if(event.key==='Enter')seleccionarArticuloSalida(${itemJSON})">
-                        <div class="sal-sug-nombre">${nombreHL}</div>
+                            onclick="seleccionarArticuloSalida(${iJSON})"
+                            onkeydown="if(event.key==='Enter')seleccionarArticuloSalida(${iJSON})">
+                        <div class="sal-sug-nombre">${hl}</div>
                         <div class="sal-sug-meta">
-                            <code>${esc(i.codigo || '—')}</code>
-                            ${i.serie ? `<span class="serie-code" style="font-size:.68rem">${esc(i.serie)}</span>` : ''}
-                            <span class="badge badge-disponible" style="font-size:.65rem">Disponible</span>
-                            <span style="color:var(--dim);font-size:.78rem">${stock}</span>
-                            <span class="td-price">$${parseFloat(i.precio || 0).toFixed(2)}</span>
+                            <code>${esc(a.codigo || '—')}</code>
+                            <span class="tipo-badge ${a.categoria==='SERIADO'?'tipo-seriado':'tipo-cantidad'}"
+                                style="font-size:.65rem">${esc(a.categoria||'')}</span>
+                            <span style="color:var(--dim);font-size:.78rem">${esc(a.unidad_medida||'und')}</span>
                         </div>
                     </div>`;
-                }).join('');
+                });
 
+                const itemsSer = series.map(s => {
+                    const art   = s.articulos || {};
+                    const iJSON = JSON.stringify({
+                        _tipo:'seriado', art_id:art.id, nombre:art.nombre,
+                        codigo:art.codigo, serie_id:s.id,
+                        serie:s.numero_serie, unidad:art.unidad_medida||'und', cantidad:1,
+                    }).replace(/"/g,'&quot;');
+                    return `<div class="sal-sug-item" tabindex="0"
+                            onclick="seleccionarArticuloSalida(${iJSON})"
+                            onkeydown="if(event.key==='Enter')seleccionarArticuloSalida(${iJSON})">
+                        <div class="sal-sug-nombre">${esc(art.nombre||'—')}</div>
+                        <div class="sal-sug-meta">
+                            <code>${esc(art.codigo||'—')}</code>
+                            <code class="serie-code" style="font-size:.68rem">${esc(s.numero_serie||'—')}</code>
+                            <span class="badge badge-disponible" style="font-size:.65rem">DISPONIBLE</span>
+                        </div>
+                    </div>`;
+                });
+
+                sugEl.innerHTML = [...itemsArt, ...itemsSer].join('');
                 sugEl.classList.remove('hidden');
 
-            } catch (innerErr) {
-                console.warn('PROINTEL — búsqueda interna:', innerErr.message);
+            } catch (inner) {
+                console.warn('PROINTEL — búsqueda interna:', inner.message);
             }
         }, 250);
 
@@ -3290,44 +3305,36 @@ function agregarAlCarritoSalida() {
         _notificar('Selecciona un artículo del buscador primero.'); return;
     }
 
-    const identEl  = document.getElementById('sal-identificador');
-    const estMat   = document.querySelector('input[name="estado_material"]:checked')?.value || 'nuevo';
-    const item     = _articuloSeleccionado;
-    const esMisc   = item.tipo_material === 'miscelaneo';
-    const esSer    = !esMisc;
-    const identVal = (identEl?.value || '').trim();
+    const estMat = document.querySelector('input[name="estado_material"]:checked')?.value || 'nuevo';
+    const item   = _articuloSeleccionado;
+    if (!item) { _notificar('Selecciona un artículo primero.'); return; }
 
-    if (esSer && !identVal) {
-        alert('Ingresa o escanea el número de serie.');
-        identEl?.focus();
-        return;
-    }
+    const esSer = item._tipo === 'seriado';
+    const esMisc = item._tipo === 'articulo';
 
-    // Serie duplicada
-    if (esSer && (window._listaSalida || []).some(x => x.serie === identVal)) {
-        alert('La serie ' + identVal + ' ya está en la lista.');
-        return;
-    }
-
-    const cantidad = esSer ? 1 : (parseInt(identVal) || 1);
-
-    // Verificar stock disponible para misceláneos
-    if (esMisc) {
-        const yaEnLista = (window._listaSalida || [])
-            .filter(x => x.bodega_id === item.id)
-            .reduce((s, x) => s + x.cantidad, 0);
-        if (cantidad > (item.cantidad || 0) - yaEnLista) {
-            alert('Stock insuficiente. Disponible: ' + ((item.cantidad || 0) - yaEnLista));
+    // Seriado — usa serie_id del artículo ya seleccionado
+    if (esSer) {
+        if ((window._listaSalida || []).some(x => x.serie_id === item.serie_id)) {
+            _notificar('La serie ' + (item.serie||'') + ' ya está en la lista.');
             return;
         }
     }
 
+    // Misceláneo — leer cantidad del campo
+    let cantidad = 1;
+    if (esMisc) {
+        const identEl = document.getElementById('sal-identificador');
+        cantidad = parseInt(identEl?.value || 1) || 1;
+    }
+
     window._listaSalida = window._listaSalida || [];
     window._listaSalida.push({
-        bodega_id:       item.id,
-        nombre:          item.nombre || item.articulo || '—',
-        codigo:          item.codigo || '',
-        serie:           esSer ? identVal : null,
+        _tipo:    item._tipo,
+        art_id:   item.art_id,
+        nombre:   item.nombre || '—',
+        codigo:   item.codigo || '',
+        serie_id: item.serie_id || null,
+        serie:    item.serie    || null,
         cantidad,
         esSer,
         estado_material: estMat,
@@ -3394,7 +3401,6 @@ async function guardarSalida(e) {
     const ot      = (document.getElementById('sal-ot')?.value || '').trim();
     const motivo  = document.getElementById('sal-motivo')?.value || '';
     const tecnico = document.getElementById('sal-tecnico')?.value || '';
-    const cuad    = (document.getElementById('sal-cuadrilla')?.value || '').trim() || null;
     const destino = (document.getElementById('sal-destino')?.value || '').trim() || null;
     const notas   = (document.getElementById('sal-notas')?.value || '').trim()   || null;
     const lista   = window._listaSalida || [];
@@ -3418,80 +3424,60 @@ async function guardarSalida(e) {
     } catch { firma = null; }
 
     try {
-        // Resolver cuadrilla del técnico
-        let cuadFinal = cuad;
-        let usrTec    = tecnico;
-        try {
-            const { data: tData } = await window.supabase
-                .from('usuarios')
-                .select('usuario, cuadrilla')
-                .or(`nombre_completo.eq.${tecnico},usuario.eq.${tecnico}`)
-                .maybeSingle();
-            if (tData?.cuadrilla) cuadFinal = tData.cuadrilla;
-            if (tData?.usuario)   usrTec    = tData.usuario;
-        } catch {}
+        // Resolver tecnico_id desde usuarios
+        const { data: tData } = await window.supabase
+            .from('usuarios')
+            .select('id, cuadrilla')
+            .or(`nombre_completo.eq.${tecnico},usuario.eq.${tecnico}`)
+            .maybeSingle();
 
-        // Insert masivo — un registro por artículo, misma OT y firma
-        const lote = lista.map(item => ({
-            bodega_id:       item.bodega_id,
-            numero_serie:    item.serie || null,
-            modelo:          item.nombre,
-            cantidad:        item.cantidad,
-            motivo,
-            destino,
-            responsable:     tecnico,
-            cuadrilla:       cuadFinal,
-            numero_ot:       ot,
-            estado_material: item.estado_material,
-            firma_base64:    firma,
-            notas,
+        if (!tData) throw new Error('No se encontró el técnico "' + tecnico + '" en el sistema.');
+        const tecnico_id = tData.id;
+
+        // Correlativo automático — máximo + 1
+        const { data: corrData } = await window.supabase
+            .from('registros_salida')
+            .select('correlativo')
+            .order('correlativo', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+        const correlativo = (corrData?.correlativo || 0) + 1;
+
+        // Insert masivo en registros_salida
+        const ahora = new Date().toISOString();
+        const lote  = lista.map(item => ({
+            correlativo,
+            tecnico_id,
+            articulo_id: item.art_id,
+            cantidad:    item.cantidad,
+            fecha:       ahora,
+            firma:       firma,
         }));
 
-        const { error: errSal } = await window.supabase.from('salidas').insert(lote);
-        if (errSal) {
-            const cod = errSal.code ? ` [${errSal.code}]` : '';
-            throw new Error('Error al insertar salidas' + cod + ': ' + errSal.message +
-                (errSal.details ? ' | ' + errSal.details : ''));
-        }
+        const { error: errSal } = await window.supabase
+            .from('registros_salida')
+            .insert(lote);
 
-        // Actualizar estado en bodega por cada artículo
-        const nuevoEst = motivo === 'venta'       ? 'vendido'
-                       : motivo === 'daño'        ? 'dañado'
-                       : ['instalación','traslado'].includes(motivo) ? 'entregado'
-                       : 'reservado';
+        if (errSal) throw new Error(
+            `Error al insertar [${errSal.code || ''}]: ${errSal.message}` +
+            (errSal.details ? ' | ' + errSal.details : '')
+        );
 
+        // Actualizar series ENTREGADO + asignado_a
         for (const item of lista) {
-            const upd = {
-                estado:      nuevoEst,
-                cuadrilla:   cuadFinal,
-                asignado_a:  usrTec,
-                responsable: usrTec,
-            };
-            if (item.esSer) {
-                await window.supabase.from('bodega').update(upd).eq('id', item.bodega_id);
-                if (item.serie) {
-                    await window.supabase.from('bodega')
-                        .update({ estado: nuevoEst })
-                        .eq('serie', item.serie)
-                        .not('estado', 'in', '("vendido","instalado")');
-                }
-            } else {
-                const { data: act } = await window.supabase
-                    .from('bodega').select('cantidad').eq('id', item.bodega_id).maybeSingle();
-                const nuevo = Math.max(0, (act?.cantidad || 0) - item.cantidad);
-                await window.supabase.from('bodega')
-                    .update({ ...upd, cantidad: nuevo, estado: nuevo <= 0 ? 'vendido' : nuevoEst })
-                    .eq('id', item.bodega_id);
+            if (item._tipo === 'seriado' && item.serie_id) {
+                await window.supabase
+                    .from('series')
+                    .update({ estado: 'ENTREGADO', asignado_a: tecnico_id })
+                    .eq('id', item.serie_id);
             }
         }
 
-        // Éxito — mostrar correlativo generado
-        const otGenerado = ot;
-        window._listaSalida  = [];
+        // Éxito
+        window._listaSalida = [];
         window._articuloSeleccionado = null;
-        cacheInventario = [];
         cerrarModal('modal-salida', true);
-        _mostrarToastExito(`✅ OT ${otGenerado} registrada con ${lote.length} artículo${lote.length !== 1 ? 's' : ''}`);
+        _mostrarToastExito(`✅ Correlativo #${correlativo} — ${lista.length} artículo${lista.length!==1?'s':''} registrado${lista.length!==1?'s':''}`);
         cargarSalidas();
 
     } catch (err) {
@@ -4361,20 +4347,12 @@ async function cargarMisArticulos() {
             <div class="istat loading-placeholder"></div>
             <div class="istat loading-placeholder"></div>
         </div>
-
-        <!-- Pestañas internas -->
         <div class="mi-bodega-tabs">
             <button class="mb-tab mb-tab-active" id="tab-stock"
-                onclick="switchMiBodegaTab('stock')">
-                📦 Stock Actual
-            </button>
+                onclick="switchMiBodegaTab('stock')">📦 Stock Actual</button>
             <button class="mb-tab" id="tab-historial"
-                onclick="switchMiBodegaTab('historial')">
-                📋 Historial de Entregas
-            </button>
+                onclick="switchMiBodegaTab('historial')">📋 Historial de Entregas</button>
         </div>
-
-        <!-- Panel: Stock Actual -->
         <div id="panel-stock" class="mb-panel">
             <div class="inv-toolbar">
                 <div class="search-bar" style="flex:1">
@@ -4387,195 +4365,165 @@ async function cargarMisArticulos() {
                 <table class="data-table" id="tabla-mis-art">
                     <thead><tr>
                         <th>#</th><th>ARTÍCULO</th><th>SERIE</th>
-                        <th>STOCK ACTUAL</th><th>ESTADO</th>
-                        <th>FECHA RECEPCIÓN</th><th>COMPROBANTE</th>
+                        <th>STOCK</th><th>ESTADO</th><th>COMPROBANTE</th>
                     </tr></thead>
                     <tbody id="mis-tbody">
-                        <tr><td colspan="7" class="empty-row">⏳ Cargando…</td></tr>
+                        <tr><td colspan="6" class="empty-row">⏳ Cargando…</td></tr>
                     </tbody>
                 </table>
             </div>
             <p class="table-count" id="mis-count"></p>
         </div>
-
-        <!-- Panel: Historial de Entregas -->
         <div id="panel-historial" class="mb-panel hidden">
-            <div class="inv-toolbar">
-                <div class="search-bar" style="flex:1">
-                    <input type="text" id="hist-search"
-                        placeholder="🔍  Buscar por OT, artículo, fecha…"
-                        oninput="filtrarTabla('hist-search','tabla-historial')" />
-                </div>
-            </div>
             <div class="table-wrap">
                 <table class="data-table" id="tabla-historial">
                     <thead><tr>
-                        <th>#</th><th>OT / TICKET</th><th>ARTÍCULO</th>
-                        <th>SERIE</th><th>MOTIVO</th><th>FECHA</th><th>COMPROBANTE</th>
+                        <th>#</th><th>CORRELATIVO</th><th>ARTÍCULO</th>
+                        <th>CANTIDAD</th><th>FECHA</th><th>COMPROBANTE</th>
                     </tr></thead>
                     <tbody id="hist-tbody">
-                        <tr><td colspan="7" class="empty-row">⏳ Cargando historial…</td></tr>
+                        <tr><td colspan="6" class="empty-row">⏳ Cargando…</td></tr>
                     </tbody>
                 </table>
             </div>
             <p class="table-count" id="hist-count"></p>
         </div>`;
 
-    // Cargar ambas secciones en paralelo
-    const usuario   = currentUser.usuario || '';
-    const nombre    = currentUser.nombre_completo || currentUser.usuario || '';
-    const cuadrilla = currentUser.cuadrilla || '';
+    if (!currentUser.id) {
+        document.getElementById('mis-tbody').innerHTML =
+            '<tr><td colspan="6" class="empty-row error-msg">❌ Sin sesión válida.</td></tr>';
+        return;
+    }
 
     try {
-        const [resStock, resSalidas] = await Promise.all([
-            // Stock actual — filtro multi-columna con OR
-            // Busca en cuadrilla, asignado_a Y responsable simultáneamente
-            (() => {
-                if (!usuario && !cuadrilla) {
-                    // Sin datos del técnico — retornar vacío
-                    return Promise.resolve({ data: [], error: null });
-                }
+        const [resMisc, resSer, resHist] = await Promise.all([
+            // Misceláneos — inventario_tecnicos
+            window.supabase
+                .from('inventario_tecnicos')
+                .select('id, cantidad_disponible, articulos(id,nombre,codigo,unidad_medida,categoria)')
+                .eq('tecnico_id', currentUser.id)
+                .gt('cantidad_disponible', 0),
 
-                // Construir condiciones OR dinámicamente
-                // Filtrar SOLO por asignado_a — campo exclusivo de propiedad del técnico
-                // cuadrilla NO se usa aquí porque bodega central también tiene cuadrilla
-                const condAsignado = [];
-                if (usuario)  condAsignado.push(`asignado_a.eq.${usuario}`);
-                if (nombre && nombre !== usuario)
-                              condAsignado.push(`asignado_a.eq.${nombre}`);
+            // Seriados — series ENTREGADO asignadas a este técnico
+            window.supabase
+                .from('series')
+                .select('id, numero_serie, estado, articulos(id,nombre,codigo,unidad_medida)')
+                .eq('asignado_a', currentUser.id)
+                .eq('estado', 'ENTREGADO'),
 
-                if (!condAsignado.length) {
-                    return Promise.resolve({ data: [], error: null });
-                }
-
-                return window.supabase
-                    .from('bodega')
-                    .select('*')
-                    .not('estado', 'in', '("vendido","instalado")')
-                    .or(condAsignado.join(','))
-                    .order('fecha_ingreso', { ascending: false });
-            })(),
-            // Historial: salidas donde él es el responsable
-            (() => {
-                const condSal = [];
-                if (usuario) condSal.push(`responsable.eq.${usuario}`);
-                if (nombre && nombre !== usuario) condSal.push(`responsable.eq.${nombre}`);
-                if (cuadrilla) condSal.push(`cuadrilla.eq.${cuadrilla}`);
-                if (!condSal.length) return Promise.resolve({ data: [], error: null });
-                return window.supabase
-                    .from('salidas')
-                    .select('*')
-                    .or(condSal.join(','))
-                    .order('created_at', { ascending: false });
-            })()
+            // Historial — registros_salida de este técnico
+            window.supabase
+                .from('registros_salida')
+                .select('id, correlativo, cantidad, fecha, articulos(nombre,codigo,unidad_medida)')
+                .eq('tecnico_id', currentUser.id)
+                .order('correlativo', { ascending: false })
         ]);
 
-        const items    = resStock.data   || [];
-        const salidas  = resSalidas.data || [];
+        const misc    = resMisc.data || [];
+        const series  = resSer.data  || [];
+        const hist    = resHist.data || [];
 
-        // Actualizar caché
-        window._misBodegaItems = items;
-
-        // ── Stats ──────────────────────────────────────────────
-        const entregados = items.filter(i => (i.estado||'').toLowerCase() === 'entregado').length;
-        const total      = items.length;
-        const totalHist  = salidas.length;
-
+        // Stats
+        const totalMisc = misc.length;
+        const totalSer  = series.length;
         document.getElementById('mis-stats').innerHTML = `
             <div class="istat">
-                <span class="istat-num">${total}</span>
+                <span class="istat-num">${totalMisc + totalSer}</span>
                 <span class="istat-label">En mi cargo</span>
             </div>
             <div class="istat istat-cyan">
-                <span class="istat-num">${entregados}</span>
-                <span class="istat-label">Entregados</span>
+                <span class="istat-num">${totalSer}</span>
+                <span class="istat-label">Equipos seriados</span>
             </div>
             <div class="istat istat-blue">
-                <span class="istat-num">${totalHist}</span>
-                <span class="istat-label">Recepciones totales</span>
+                <span class="istat-num">${hist.length}</span>
+                <span class="istat-label">Recepciones</span>
             </div>`;
 
-        // ── Panel Stock Actual ────────────────────────────────
+        // Cache para descargos
+        window._misBodegaItems = { misc, series };
+
+        // ── Panel Stock Actual ──
         const tbody = document.getElementById('mis-tbody');
         const count = document.getElementById('mis-count');
 
-        if (!items.length) {
-            tbody.innerHTML = '<tr><td colspan="7" class="empty-row">No tienes artículos asignados. Contacta a bodega central.</td></tr>';
+        const allItems = [
+            ...misc.map(m => ({
+                _tipo:   'misc',
+                id:      m.id,
+                art_id:  m.articulos?.id,
+                nombre:  m.articulos?.nombre || '—',
+                codigo:  m.articulos?.codigo || '—',
+                serie:   null,
+                stock:   m.cantidad_disponible,
+                unidad:  m.articulos?.unidad_medida || 'und',
+                estado:  'EN STOCK',
+            })),
+            ...series.map(s => ({
+                _tipo:   'seriado',
+                id:      s.id,
+                art_id:  s.articulos?.id,
+                nombre:  s.articulos?.nombre || '—',
+                codigo:  s.articulos?.codigo || '—',
+                serie:   s.numero_serie,
+                stock:   1,
+                unidad:  'und',
+                estado:  s.estado || 'ENTREGADO',
+            })),
+        ];
+
+        if (!allItems.length) {
+            tbody.innerHTML = '<tr><td colspan="6" class="empty-row">No tienes materiales asignados en tu bodega personal.</td></tr>';
         } else {
-            tbody.innerHTML = items.map((item, idx) => {
-                const salidaRel   = salidas.find(s =>
-                    (s.bodega_id && s.bodega_id === item.id) ||
-                    (s.numero_serie && s.numero_serie === item.serie)
-                );
-                const fechaRec    = item.fecha_ingreso || item.updated_at || item.created_at;
-                const estadoBadge = (item.estado||'').toLowerCase();
-                const esMisc      = item.tipo_material === 'miscelaneo';
-
-                // Stock actual con unidad y nivel de alerta
-                const stockNum   = esMisc ? (item.cantidad || 0) : 1;
-                const unidad     = item.unidad || 'und';
-                const stockCrit  = esMisc ? stockNum < 5  : stockNum < 1;
-                const stockWarn  = esMisc ? stockNum < 20 : false;
-                const stockColor = stockCrit ? 'var(--danger)' : stockWarn ? '#f39c12' : 'var(--green)';
-                const stockCell  = `<span style="font-family:var(--font-mono);font-weight:700;color:${stockColor}">
-                    ${stockNum} <small style="font-weight:400;color:var(--dim);font-size:.78em">${esc(unidad)}</small>
-                    ${stockCrit ? '⚠️' : stockWarn ? '〽️' : ''}
+            const salRel = hist.reduce((map, h) => { map[h.id] = h; return map; }, {});
+            tbody.innerHTML = allItems.map((item, idx) => {
+                const crit  = item._tipo === 'misc' && item.stock < 5;
+                const warn  = item._tipo === 'misc' && item.stock < 20 && !crit;
+                const color = crit ? 'var(--danger)' : warn ? '#f39c12' : 'var(--green)';
+                const stockCell = `<span style="font-family:var(--font-mono);font-weight:700;color:${color}">
+                    ${item.stock} <small style="font-size:.75em;color:var(--dim)">${esc(item.unidad)}</small>
+                    ${crit ? '⚠️' : warn ? '〽️' : ''}
                 </span>`;
-
-                return `<tr ${stockCrit ? 'style="background:rgba(255,77,109,.05)"' : ''}>
-                    <td class="row-num">${idx + 1}</td>
+                return `<tr ${crit ? 'style="background:rgba(255,77,109,.05)"' : ''}>
+                    <td class="row-num">${idx+1}</td>
                     <td>
-                        <div class="td-bold">${esc(item.nombre || item.articulo || '—')}</div>
-                        ${item.codigo ? `<div style="font-size:.7rem;color:var(--dim);font-family:var(--font-mono)">${esc(item.codigo)}</div>` : ''}
+                        <div class="td-bold">${esc(item.nombre)}</div>
+                        <div style="font-size:.7rem;color:var(--dim);font-family:var(--font-mono)">${esc(item.codigo)}</div>
                     </td>
                     <td>${item.serie
                         ? `<code class="serie-code">${esc(item.serie)}</code>`
                         : `<span class="tipo-badge tipo-cantidad" style="font-size:.65rem">MISC</span>`}</td>
                     <td style="text-align:center">${stockCell}</td>
-                    <td><span class="badge badge-${estadoBadge === 'entregado' ? 'reservado' : estadoBadge}">
-                        ${esc(item.estado || '—')}
-                    </span></td>
-                    <td class="td-date">${formatFecha(fechaRec)}</td>
-                    <td>${salidaRel
-                        ? `<button class="act-btn act-edit" onclick="verComprobanteTecnico('${salidaRel.id}')">📄 Ver</button>`
-                        : '<span class="td-date">—</span>'}</td>
+                    <td><span class="badge badge-${item.estado === 'EN STOCK' ? 'disponible' : 'reservado'}"
+                        style="font-size:.72rem">${esc(item.estado)}</span></td>
+                    <td>—</td>
                 </tr>`;
             }).join('');
         }
-        if (count) count.textContent = `${items.length} artículo${items.length !== 1 ? 's' : ''} en tu cargo`;
+        if (count) count.textContent = `${allItems.length} artículo${allItems.length!==1?'s':''} en tu cargo`;
 
-        // ── Panel Historial de Entregas ───────────────────────
+        // ── Panel Historial ──
         const histTbody = document.getElementById('hist-tbody');
         const histCount = document.getElementById('hist-count');
-
-        if (!salidas.length) {
-            histTbody.innerHTML = '<tr><td colspan="7" class="empty-row">No tienes entregas registradas aún.</td></tr>';
+        if (!hist.length) {
+            histTbody.innerHTML = '<tr><td colspan="6" class="empty-row">No tienes entregas registradas aún.</td></tr>';
         } else {
-            histTbody.innerHTML = salidas.map((s, idx) => `
+            histTbody.innerHTML = hist.map((h, idx) => `
                 <tr>
-                    <td class="row-num">${idx + 1}</td>
-                    <td><code class="sku-code">${esc(s.numero_ot || '—')}</code></td>
-                    <td class="td-bold">${esc(s.modelo || s.nombre_articulo || '—')}</td>
-                    <td>${s.numero_serie
-                        ? `<code class="serie-code">${esc(s.numero_serie)}</code>`
-                        : `<span class="td-date">${s.cantidad||1} uds.</span>`}</td>
-                    <td><span class="cat-pill">${esc(s.motivo || '—')}</span></td>
-                    <td class="td-date">${formatFecha(s.created_at)}</td>
-                    <td>
-                        <button class="act-btn act-edit"
-                            onclick="verComprobanteTecnico('${s.id}')">
-                            📄 Comprobante
-                        </button>
-                    </td>
+                    <td class="row-num">${idx+1}</td>
+                    <td><code class="sku-code">#${h.correlativo||'—'}</code></td>
+                    <td class="td-bold">${esc(h.articulos?.nombre||'—')}</td>
+                    <td style="font-family:var(--font-mono)">${h.cantidad||'—'} ${esc(h.articulos?.unidad_medida||'und')}</td>
+                    <td class="td-date">${h.fecha ? new Date(h.fecha).toLocaleDateString('es-SV') : '—'}</td>
+                    <td>—</td>
                 </tr>`).join('');
         }
-        if (histCount) histCount.textContent = `${salidas.length} entrega${salidas.length !== 1 ? 's' : ''} recibida${salidas.length !== 1 ? 's' : ''}`;
+        if (histCount) histCount.textContent = `${hist.length} entrega${hist.length!==1?'s':''}`;
 
     } catch (err) {
         console.error('PROINTEL — cargarMisArticulos:', err);
-        const tbody = document.getElementById('mis-tbody');
-        if (tbody) tbody.innerHTML =
-            `<tr><td colspan="7" class="empty-row error-msg">❌ ${err.message}</td></tr>`;
+        document.getElementById('mis-tbody').innerHTML =
+            `<tr><td colspan="6" class="empty-row error-msg">❌ ${err.message}</td></tr>`;
     }
 }
 
@@ -4642,66 +4590,68 @@ function verComprobanteTecnico(salidaId) {
 function abrirInstalacion() { abrirDescargos(); }
 
 async function abrirDescargos() {
-    // Recargar stock fresco del técnico
     window._misBodegaItems = null;
-
     const content = document.getElementById('dashboard-content');
     if (content) {
         content.innerHTML = `
             <div class="module-header">
                 <h2>📦 DESCARGOS</h2>
-                <button class="btn-nav" onclick="cargarMisArticulos()">← Volver a mi bodega</button>
+                <button class="btn-nav" onclick="cargarMisArticulos()">← Mi Bodega</button>
             </div>
-            <p class="loading-msg">⏳ Cargando tu stock…</p>`;
+            <p class="loading-msg">⏳ Cargando tu stock personal…</p>`;
     }
 
-    // Cargar SOLO el stock personal del técnico
-    const usuario   = currentUser?.usuario || '';
-    const nombre    = currentUser?.nombre_completo || currentUser?.usuario || '';
-    const cuadrilla = currentUser?.cuadrilla || '';
-
-    // Filtrar SOLO por asignado_a — campo exclusivo que escribe guardarSalida
-    const condDesc = [];
-    if (usuario)                      condDesc.push(`asignado_a.eq.${usuario}`);
-    if (nombre && nombre !== usuario) condDesc.push(`asignado_a.eq.${nombre}`);
-
-    let stockData = [];
-    if (condDesc.length) {
-        const { data } = await window.supabase
-            .from('bodega')
-            .select('*')
-            .not('estado', 'in', '("vendido","instalado")')
-            .or(condDesc.join(','))
-            .order('fecha_ingreso', { ascending: false });
-        stockData = data || [];
+    if (!currentUser?.id) {
+        _notificar('Sin sesión válida. Por favor inicia sesión nuevamente.');
+        return;
     }
 
-    window._misBodegaItems = stockData;
+    // Cargar misceláneos del técnico
+    const { data: miscData } = await window.supabase
+        .from('inventario_tecnicos')
+        .select('id, cantidad_disponible, articulos(id,nombre,codigo,unidad_medida)')
+        .eq('tecnico_id', currentUser.id)
+        .gt('cantidad_disponible', 0);
 
-    const disponibles = stockData.filter(
-        i => !['vendido','instalado'].includes((i.estado||'').toLowerCase())
-    );
+    // Cargar series ENTREGADO del técnico
+    const { data: serData } = await window.supabase
+        .from('series')
+        .select('id, numero_serie, articulos(id,nombre,codigo,unidad_medida)')
+        .eq('asignado_a', currentUser.id)
+        .eq('estado', 'ENTREGADO');
 
-    const optsItems = disponibles.length
-        ? disponibles.map(i => {
-            const esMisc = i.tipo_material === 'miscelaneo';
-            // Stock PERSONAL del técnico — cantidad real en su poder
-            const stockPersonal = esMisc ? (i.cantidad || 0) : 1;
-            const unidad = i.unidad || 'und';
-            const label = esMisc
-                ? `${i.nombre||i.articulo||'Sin nombre'} — Mi stock: ${stockPersonal} ${unidad}`
-                : `${i.nombre||i.articulo||'Sin nombre'} — Serie: ${i.serie||'sin serie'}`;
-            return `<option value="${i.id}"
-                data-max="${stockPersonal}"
-                data-nombre="${esc(i.nombre||i.articulo||'')}"
-                data-serie="${esc(i.serie||'')}"
-                data-codigo="${esc(i.codigo||'')}"
-                data-unidad="${esc(unidad)}"
-                data-es-misc="${esMisc}">
-                ${esc(label)}
+    const misc   = miscData || [];
+    const series = serData  || [];
+    window._misBodegaItems = { misc, series };
+
+    const optsItems = [
+        ...misc.map(m => {
+            const a = m.articulos || {};
+            const u = a.unidad_medida || 'und';
+            return `<option value="misc-${m.id}"
+                data-max="${m.cantidad_disponible}"
+                data-tipo="misc"
+                data-inv-id="${m.id}"
+                data-art-id="${a.id||''}"
+                data-nombre="${esc(a.nombre||'')}"
+                data-unidad="${esc(u)}">
+                ${esc(a.nombre||'Sin nombre')} — Mi stock: ${m.cantidad_disponible} ${u}
             </option>`;
-        }).join('')
-        : '<option value="" disabled>No tienes material en tu bodega personal</option>';
+        }),
+        ...series.map(s => {
+            const a = s.articulos || {};
+            return `<option value="ser-${s.id}"
+                data-max="1"
+                data-tipo="seriado"
+                data-serie-id="${s.id}"
+                data-art-id="${a.id||''}"
+                data-nombre="${esc(a.nombre||'')}"
+                data-serie="${esc(s.numero_serie||'')}"
+                data-unidad="und">
+                ${esc(a.nombre||'Sin nombre')} — Serie: ${esc(s.numero_serie||'—')}
+            </option>`;
+        }),
+    ].join('') || '<option value="" disabled>No tienes material en tu bodega personal</option>';
 
     if (content) {
         content.innerHTML = `
@@ -4709,76 +4659,57 @@ async function abrirDescargos() {
                 <h2>📦 DESCARGOS</h2>
                 <button class="btn-nav" onclick="cargarMisArticulos()">← Volver a mi bodega</button>
             </div>
-
-            <form id="form-descargos" onsubmit="guardarDescargo(event)"
-                  class="inst-panel-form">
-
+            <form id="form-descargos" onsubmit="guardarDescargo(event)" class="inst-panel-form">
                 <div class="form-grid">
-
                     <div class="field field-full">
                         <label>Nº SOLICITUD / OT <span class="req">*</span></label>
                         <input type="text" id="desc-ot" required
                             placeholder="OT-2025-0001"
                             style="font-family:var(--font-mono);font-size:1rem" autofocus />
                     </div>
-
                     <div class="field field-full">
                         <label>MATERIAL DESCARGADO <span class="req">*</span>
-                            <span id="desc-stock-badge"
-                                class="series-count-badge"
-                                style="display:none"></span>
+                            <span id="desc-stock-badge" class="series-count-badge" style="display:none"></span>
                         </label>
-                        <select id="desc-item" required
-                            onchange="onDescItemChange(this)"
+                        <select id="desc-item" required onchange="onDescItemChange(this)"
                             class="filter-select" style="width:100%">
                             <option value="">— Seleccionar de mi bodega —</option>
                             ${optsItems}
                         </select>
                         <div id="desc-codigo-wrap" class="sal-codigo-interno hidden">
-                            <span class="sal-codigo-label">Código interno:</span>
+                            <span class="sal-codigo-label">Serie:</span>
                             <code id="desc-codigo-val" class="serie-code"></code>
                         </div>
                     </div>
-
                     <div class="field">
                         <label>CANTIDAD DESCARGADA <span class="req">*</span></label>
                         <input type="number" id="desc-cantidad"
                             min="1" max="1" value="1" required
                             oninput="validarCantidadDesc(this)" />
                         <div id="desc-cant-error"
-                            style="font-size:.78rem;color:var(--danger);
-                                   margin-top:.3rem;display:none">
-                            ⚠️ Stock insuficiente en tu bodega personal.
+                            style="font-size:.78rem;color:var(--danger);margin-top:.3rem;display:none">
                         </div>
                     </div>
-
                     <div class="field">
                         <label>DIRECCIÓN DEL CLIENTE</label>
                         <input type="text" id="desc-destino"
                             placeholder="Dirección de la instalación" />
                     </div>
-
                     <div class="field field-full">
                         <label>DESCRIPCIÓN DEL TRABAJO</label>
                         <textarea id="desc-notas" rows="3"
                             placeholder="Tipo de instalación, observaciones técnicas…"></textarea>
                     </div>
-
                 </div>
-
-                <!-- Footer con z-index alto — SIEMPRE visible -->
                 <div id="descargo-footer">
                     <button type="button" class="btn-ghost-sm"
                         onclick="confirmarCierreDescargo()">Cancelar</button>
-                    <button type="submit" class="btn-guardar-final"
-                        id="btnGuardarDescargo">
+                    <button type="submit" class="btn-guardar-final" id="btnGuardarDescargo">
                         📦 Finalizar Descargo
                     </button>
                 </div>
-
             </form>`;
 
-        // Forzar visibilidad del botón — triple seguridad
         requestAnimationFrame(() => {
             const btn = document.getElementById('btnGuardarDescargo');
             if (btn) {
@@ -4862,21 +4793,24 @@ async function guardarDescargo(e) {
     e.preventDefault();
 
     const ot       = document.getElementById('desc-ot')?.value.trim();
-    const itemId   = document.getElementById('desc-item')?.value;
-    const cantidad = parseInt(document.getElementById('desc-cantidad')?.value||1);
-    const destino  = document.getElementById('desc-destino')?.value.trim() || null;
-    const notas    = document.getElementById('desc-notas')?.value.trim()   || null;
+    const selectEl = document.getElementById('desc-item');
+    const opt      = selectEl?.options[selectEl?.selectedIndex];
+    const cantidad = parseInt(document.getElementById('desc-cantidad')?.value || 1);
+    const destino  = document.getElementById('desc-destino')?.value.trim()  || null;
+    const notas    = document.getElementById('desc-notas')?.value.trim()    || null;
 
     if (!ot)     { _notificar('El número de OT es obligatorio.'); return; }
-    if (!itemId) { _notificar('Selecciona el material a descargar.'); return; }
+    if (!opt?.value) { _notificar('Selecciona el material a descargar.'); return; }
 
-    const item = (window._misBodegaItems||[]).find(i => String(i.id) === String(itemId));
-    if (!item)   { _notificar('Artículo no encontrado. Actualiza tu bodega.'); return; }
+    const tipo     = opt.getAttribute('data-tipo');
+    const maxStock = parseInt(opt.getAttribute('data-max') || 0);
+    const artId    = parseInt(opt.getAttribute('data-art-id') || 0);
+    const invId    = parseInt(opt.getAttribute('data-inv-id') || 0);
+    const serieId  = parseInt(opt.getAttribute('data-serie-id') || 0);
+    const nombre   = opt.getAttribute('data-nombre') || '—';
 
-    const maxStock = item.tipo_material === 'miscelaneo' ? (item.cantidad||1) : 1;
     if (cantidad > maxStock) {
-        alert('⚠️ Stock insuficiente en tu bodega personal.\nTienes ' + maxStock + ' unidad(es).');
-        document.getElementById('desc-cantidad')?.focus();
+        _notificar(`⚠️ No tienes suficiente material. Tu stock personal: ${maxStock} unidades.`);
         return;
     }
 
@@ -4884,63 +4818,55 @@ async function guardarDescargo(e) {
     const btnTxt = btn?.textContent || '📦 Finalizar Descargo';
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Guardando…'; }
 
-    // Debug: ver exactamente qué se enviará a Supabase
-    const datosDescargo = {
-        bodega_id:       item.id,
-        numero_serie:    item.serie || null,
-        modelo:          item.nombre || item.articulo || null,
-        cantidad,
-        motivo:          'instalación',
-        destino,
-        responsable:     currentUser.nombre_completo || currentUser.usuario,
-        cuadrilla:       currentUser.cuadrilla || null,
-        numero_ot:       ot,
-        estado_material: 'instalado',
-        notas
+    // Correlativo de descargo — máximo + 1
+    const { data: corrData } = await window.supabase
+        .from('registros_instalaciones')
+        .select('correlativo_descargo')
+        .order('correlativo_descargo', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+    const correlativo_descargo = (corrData?.correlativo_descargo || 0) + 1;
+
+    const payload = {
+        correlativo_descargo,
+        tecnico_id:   currentUser.id,
+        numero_ot:    ot,
+        cliente:      destino,
+        articulo_id:  artId || null,
+        cantidad_usada: cantidad,
+        serie_id:     (tipo === 'seriado' && serieId) ? serieId : null,
+        fecha:        new Date().toISOString(),
     };
-    console.log('PROINTEL — datosDescargo:', JSON.stringify(datosDescargo, null, 2));
+
+    console.log('PROINTEL — descargo payload:', JSON.stringify(payload, null, 2));
 
     try {
-        // 1. Registrar en salidas (historial del técnico)
-        const { data: salidaData, error: errSal } = await window.supabase
-            .from('salidas')
-            .insert(datosDescargo)
-            .select('id')
-            .maybeSingle();
+        const { error: errDesc } = await window.supabase
+            .from('registros_instalaciones')
+            .insert(payload);
 
-        if (errSal) {
-            // Mostrar error detallado con código Postgres
-            const detalle = [
-                errSal.message,
-                errSal.details  ? 'Detalle: ' + errSal.details  : null,
-                errSal.hint     ? 'Sugerencia: ' + errSal.hint   : null,
-                errSal.code     ? 'Código: ' + errSal.code       : null,
-            ].filter(Boolean).join(' | ');
-            throw new Error(detalle);
+        if (errDesc) throw new Error(
+            `Error [${errDesc.code||''}]: ${errDesc.message}` +
+            (errDesc.details ? ' | ' + errDesc.details : '')
+        );
+
+        // Actualizar stock según tipo
+        if (tipo === 'seriado' && serieId) {
+            await window.supabase
+                .from('series')
+                .update({ estado: 'INSTALADO', asignado_a: null })
+                .eq('id', serieId);
+
+        } else if (tipo === 'misc' && invId) {
+            const nuevo = Math.max(0, maxStock - cantidad);
+            await window.supabase
+                .from('inventario_tecnicos')
+                .update({ cantidad_disponible: nuevo })
+                .eq('id', invId);
         }
 
-        // 2. Actualizar estado en bodega → 'instalado'
-        if (item.tipo_material === 'miscelaneo') {
-            const nuevoStock  = Math.max(0, (item.cantidad||1) - cantidad);
-            const nuevoEstado = nuevoStock <= 0 ? 'instalado' : 'disponible';
-            await window.supabase.from('bodega')
-                .update({ cantidad: nuevoStock, estado: nuevoEstado })
-                .eq('id', item.id);
-        } else {
-            await window.supabase.from('bodega')
-                .update({ estado: 'instalado' })
-                .eq('id', item.id);
-            // También actualizar por serie si existe
-            if (item.serie) {
-                await window.supabase.from('bodega')
-                    .update({ estado: 'instalado' })
-                    .eq('serie', item.serie);
-            }
-        }
-
-        // 3. Éxito
         window._misBodegaItems = null;
-        _mostrarToastExito('✅ Descargo OT ' + esc(ot) + ' registrado. Stock actualizado.');
+        _mostrarToastExito(`✅ Descargo #${correlativo_descargo} — OT ${esc(ot)} registrado`);
         setTimeout(() => cargarMisArticulos(), 800);
 
     } catch (err) {
