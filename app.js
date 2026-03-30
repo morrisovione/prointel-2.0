@@ -3276,7 +3276,7 @@ async function buscarArticuloSalida(q) {
                 const [resArt, resBodega] = await Promise.all([
                     window.supabase
                         .from('articulos')
-                        .select('id, codigo, nombre, categoria, unidad_medida')
+                        .select('id, codigo, nombre, categoria, unidad_medida, cant, cantidad')
                         .or(`nombre.ilike.%${qClean}%,codigo.ilike.%${qClean}%`)
                         .limit(12),
                     window.supabase
@@ -3294,16 +3294,21 @@ async function buscarArticuloSalida(q) {
                 if (artErr) console.error('PROINTEL — articulos error:', artErr.code, artErr.message);
 
                 // Normalizar resultados de ambas fuentes al mismo formato
-                const deArticulos = (resArt.data || []).map(a => ({
-                    _fuente:    'articulos',
-                    _tipo:      a.categoria === 'SERIADO' ? 'articulo' : 'articulo',
-                    art_id:     a.id,
-                    nombre:     a.nombre,
-                    codigo:     a.codigo,
-                    unidad:     a.unidad_medida || 'und',
-                    categoria:  a.categoria,
-                    cantidad:   null,
-                }));
+                const deArticulos = (resArt.data || []).map(a => {
+                    // Compatibilidad: la columna puede llamarse 'cant' o 'cantidad'
+                    const stock = a.cant ?? a.cantidad ?? null;
+                    console.log('Artículo seleccionado:', a.nombre, '| cant:', a.cant, '| cantidad:', a.cantidad, '| stock resuelto:', stock);
+                    return {
+                        _fuente:    'articulos',
+                        _tipo:      'articulo',
+                        art_id:     a.id,
+                        nombre:     a.nombre,
+                        codigo:     a.codigo,
+                        unidad:     a.unidad_medida || 'und',
+                        categoria:  a.categoria,
+                        cantidad:   stock,
+                    };
+                });
 
                 const deBodega = (resBodega.data || []).map(b => ({
                     _fuente:    'bodega',
@@ -3457,6 +3462,11 @@ function seleccionarArticuloSalida(item) {
     const esMisc    = cat === 'MISCELANEO' || cat === 'MISCELÁNEOS';
     const esSeriado = !esMisc;
 
+    // Resolver cantidad compatible con ambos esquemas (cant o cantidad)
+    const stockResuelto = item.cant ?? item.cantidad ?? null;
+    if (stockResuelto !== null) item.cantidad = stockResuelto;
+    console.log('Artículo seleccionado:', item.nombre, '| cant:', item.cant, '| cantidad:', item.cantidad, '| stock:', stockResuelto);
+
     // Badge de stock
     if (stockEl) {
         const maxDisp  = esMisc ? (item.cantidad || 0) : 1;
@@ -3559,7 +3569,8 @@ function agregarAlCarritoSalida() {
 
     // Cantidad para misceláneos
     const cantidad = esSer ? 1 : (parseInt(identVal) || 1);
-    const maxStock = parseInt(item.cantidad || 0);
+    // Resolver maxStock: cant o cantidad según esquema
+    const maxStock = parseInt(item.cant ?? item.cantidad ?? 0);
 
     if (esMisc && cantidad > maxStock) {
         _notificar(`Stock insuficiente. Disponible: ${maxStock}`);
@@ -5208,6 +5219,34 @@ function _notificar(msg) {
         }, 3500);
     } catch {
         alert(msg);
+    }
+}
+
+// ── Toasts ───────────────────────────────────────────────
+function _mostrarToastExito(msg) {
+    _mostrarToast(msg, 'toast-exito');
+}
+
+function _notificar(msg) {
+    _mostrarToast(msg, 'toast-error');
+}
+
+function _mostrarToast(msg, cls) {
+    try {
+        // Quitar toast anterior del mismo tipo
+        document.querySelectorAll('.' + cls).forEach(t => t.remove());
+        const t = document.createElement('div');
+        t.className = cls;
+        t.textContent = msg;
+        document.body.appendChild(t);
+        requestAnimationFrame(() => t.classList.add('toast-visible'));
+        setTimeout(() => {
+            t.classList.remove('toast-visible');
+            setTimeout(() => t.remove(), 400);
+        }, 3500);
+    } catch {
+        // Fallback nativo si algo falla
+        if (cls === 'toast-error') alert(msg);
     }
 }
 
