@@ -4700,6 +4700,47 @@ async function abrirDescargos() {
                         <textarea id="desc-notas" rows="3"
                             placeholder="Tipo de instalación, observaciones técnicas…"></textarea>
                     </div>
+
+                    <!-- ── Test de Calidad de Red (OPCIONAL) ──────────── -->
+                    <div class="field field-full diag-section">
+                        <div class="diag-header">
+                            <span class="diag-title">📡 Diagnóstico de Red</span>
+                            <span class="diag-badge">OPCIONAL</span>
+                        </div>
+                        <a href="https://speed.cloudflare.com/"
+                            target="_blank" rel="noopener noreferrer"
+                            class="diag-link-btn">
+                            🌐 Realizar Test de Calidad en Cloudflare
+                            <span style="font-size:.7rem;opacity:.7;display:block;margin-top:.1rem">
+                                Se abre en pestaña nueva · Solo si el cliente lo permite
+                            </span>
+                        </a>
+                        <div class="diag-fields">
+                            <div class="field" style="flex:1">
+                                <label>CALIFICACIÓN OBTENIDA</label>
+                                <select id="desc-diag-nota" class="filter-select">
+                                    <option value="">— No realizado —</option>
+                                    <option value="A+">A+ — Excelente</option>
+                                    <option value="A">A  — Muy bueno</option>
+                                    <option value="B">B  — Bueno</option>
+                                    <option value="C">C  — Regular</option>
+                                    <option value="D">D  — Deficiente</option>
+                                    <option value="F">F  — Reprobado</option>
+                                </select>
+                            </div>
+                            <div class="field" style="flex:1">
+                                <label>CAPTURA DE PANTALLA</label>
+                                <input type="file"
+                                    id="desc-diag-img"
+                                    accept="image/*"
+                                    style="font-size:.82rem;padding:.4rem" />
+                                <div style="font-size:.7rem;color:var(--dim);margin-top:.2rem">
+                                    PNG, JPG o WebP · máx. 2 MB
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
                 <div id="descargo-footer">
                     <button type="button" class="btn-ghost-sm"
@@ -4827,15 +4868,45 @@ async function guardarDescargo(e) {
         .maybeSingle();
     const correlativo_descargo = (corrData?.correlativo_descargo || 0) + 1;
 
+    // Diagnóstico de red (opcional)
+    const diagNota = document.getElementById('desc-diag-nota')?.value || null;
+    const diagFile = document.getElementById('desc-diag-img')?.files?.[0] || null;
+    let   diagUrl  = null;
+
+    // Subir captura a Supabase Storage si existe
+    if (diagFile) {
+        try {
+            const ext      = diagFile.name.split('.').pop() || 'jpg';
+            const fileName = `diag_${currentUser.id}_${Date.now()}.${ext}`;
+            const { data: upData, error: upErr } = await window.supabase.storage
+                .from('evidencias-instalaciones')
+                .upload(fileName, diagFile, { upsert: false, contentType: diagFile.type });
+            if (!upErr) {
+                const { data: urlData } = window.supabase.storage
+                    .from('evidencias-instalaciones')
+                    .getPublicUrl(upData.path);
+                diagUrl = urlData?.publicUrl || null;
+            } else {
+                console.warn('PROINTEL — no se pudo subir evidencia:', upErr.message);
+            }
+        } catch (uploadErr) {
+            console.warn('PROINTEL — error subiendo imagen:', uploadErr.message);
+            // Continuar sin imagen — no bloquear el guardado
+        }
+    }
+
     const payload = {
         correlativo_descargo,
-        tecnico_id:   currentUser.id,
-        numero_ot:    ot,
-        cliente:      destino,
-        articulo_id:  artId || null,
-        cantidad_usada: cantidad,
-        serie_id:     (tipo === 'seriado' && serieId) ? serieId : null,
-        fecha:        new Date().toISOString(),
+        tecnico_id:             currentUser.id,
+        numero_ot:              ot,
+        cliente:                destino,
+        articulo_id:            artId || null,
+        cantidad_usada:         cantidad,
+        serie_id:               (tipo === 'seriado' && serieId) ? serieId : null,
+        fecha:                  new Date().toISOString(),
+        // Diagnóstico — columnas nullable, no afectan el guardado si son null
+        test_calidad_nota:      diagNota  || null,
+        test_calidad_evidencia: diagUrl   || null,
     };
 
     console.log('PROINTEL — descargo payload:', JSON.stringify(payload, null, 2));
