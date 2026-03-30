@@ -2836,9 +2836,12 @@ function filtrarSalidasLive() {
 }
 
 // ── Modal Salida — formulario inteligente ─────────────────
+// ════════════════════════════════════════════════════════════
+//  MÓDULO: SALIDAS — Registro multi-artículo (carrito)
+// ════════════════════════════════════════════════════════════
+
 async function generarNumeroOT() {
     try {
-        // Buscar el último OT registrado en salidas
         const { data } = await window.supabase
             .from('salidas')
             .select('numero_ot')
@@ -2848,30 +2851,14 @@ async function generarNumeroOT() {
             .maybeSingle();
 
         const anio = new Date().getFullYear();
+        if (!data?.numero_ot) return `OT-${anio}-0001`;
 
-        if (!data?.numero_ot) {
-            // Tabla vacía — primer OT
-            return `OT-${anio}-0001`;
-        }
-
-        const ultimo = String(data.numero_ot);
-
-        // Formato OT-YYYY-NNNN (cadena)
-        const matchStr = ultimo.match(/OT-\d{4}-(\d+)$/i);
-        if (matchStr) {
-            const siguiente = parseInt(matchStr[1], 10) + 1;
-            return `OT-${anio}-${String(siguiente).padStart(4, '0')}`;
-        }
-
-        // Formato entero correlativo (1001, 1002…)
-        const matchInt = ultimo.match(/^(\d+)$/);
-        if (matchInt) {
-            return String(parseInt(matchInt[1], 10) + 1);
-        }
-
-        // Fallback si el formato no coincide
+        const s = String(data.numero_ot);
+        const m = s.match(/OT-\d{4}-(\d+)$/i);
+        if (m) return `OT-${anio}-${String(parseInt(m[1]) + 1).padStart(4, '0')}`;
+        const n = s.match(/^(\d+)$/);
+        if (n) return String(parseInt(n[1]) + 1);
         return `OT-${anio}-0001`;
-
     } catch {
         return `OT-${new Date().getFullYear()}-0001`;
     }
@@ -2881,87 +2868,75 @@ async function abrirModalSalida() {
     // Cargar técnicos activos
     const { data: tecnicos } = await window.supabase
         .from('usuarios')
-        .select('usuario, nombre_completo, cuadrilla, rol')
-        .eq('estado','activo')
+        .select('usuario, nombre_completo, cuadrilla')
+        .eq('estado', 'activo')
         .order('nombre_completo');
 
-    const optsTec = (tecnicos||[]).map(t =>
-        `<option value="${esc(t.nombre_completo||t.usuario)}"
-            data-cuadrilla="${esc(t.cuadrilla||'')}"
-            data-usuario="${esc(t.usuario||'')}">
-            ${esc(t.nombre_completo||t.usuario)}
+    const optsTec = (tecnicos || []).map(t =>
+        `<option value="${esc(t.nombre_completo || t.usuario)}"
+            data-cuadrilla="${esc(t.cuadrilla || '')}"
+            data-usuario="${esc(t.usuario || '')}">
+            ${esc(t.nombre_completo || t.usuario)}
          </option>`
     ).join('');
 
-    // Inicializar carrito vacío
+    // Inicializar carrito y limpiar caché para datos frescos
     window._listaSalida = [];
-
-    // Forzar recarga de inventario para que el buscador tenga datos frescos
     cacheInventario = [];
 
     document.body.insertAdjacentHTML('beforeend', `
         <div class="modal-overlay" id="modal-salida">
-            <!-- Backdrop bloqueado — protege datos y firma -->
-            <div class="modal-content modal-salida-wide"
-                onclick="event.stopPropagation()">
+            <div class="modal-content modal-salida-wide" onclick="event.stopPropagation()">
 
                 <div class="modal-head">
                     <div class="modal-head-left">
                         <span class="modal-icon">📤</span>
                         <span>Registrar Salida de Material</span>
                     </div>
-                    <button class="modal-close"
-                        onclick="cerrarModal('modal-salida')">✕</button>
+                    <button class="modal-close" onclick="cerrarModal('modal-salida')">✕</button>
                 </div>
 
                 <form id="form-salida" onsubmit="guardarSalida(event)">
                 <div class="modal-body">
                 <div class="salida-grid">
 
-                    <!-- ── Columna izquierda ─────────────── -->
+                    <!-- COLUMNA IZQUIERDA -->
                     <div class="salida-col">
 
-                        <!-- OT -->
                         <div class="field">
                             <label>Nº OT / TICKET <span class="req">*</span></label>
                             <input type="text" id="sal-ot" required
-                                placeholder="OT-2025-0001"
+                                placeholder="OT-2026-0001"
                                 style="font-family:var(--font-mono)" />
                         </div>
 
-                        <!-- Buscador artículo -->
                         <div class="field">
                             <label>ARTÍCULO <span class="req">*</span>
                                 <span id="sal-stock-badge"
                                     class="series-count-badge"
                                     style="display:none"></span>
                             </label>
-                            <div style="position:relative">
-                                <div class="buscar-wrap">
-                                    <input type="text" id="sal-articulo-buscar"
-                                        placeholder="Nombre, código o serie…"
-                                        autocomplete="off"
-                                        oninput="buscarArticuloSalida(this.value)"
-                                        onkeydown="navSugerencias(event)"
-                                        style="padding-right:2.2rem" />
-                                    <button type="button"
-                                        id="sal-buscar-clear"
-                                        class="buscar-clear-btn"
-                                        style="display:none"
-                                        onclick="limpiarBuscadorSalida()"
-                                        title="Limpiar búsqueda">✕</button>
-                                </div>
-                                <div id="sal-sugerencias"
-                                    class="sal-sugerencias hidden"></div>
+                            <div class="buscar-wrap">
+                                <input type="text" id="sal-articulo-buscar"
+                                    placeholder="Nombre, código o serie…"
+                                    autocomplete="off"
+                                    oninput="buscarArticuloSalida(this.value)"
+                                    onkeydown="navSugerencias(event)"
+                                    style="padding-right:2.4rem" />
+                                <button type="button"
+                                    id="sal-buscar-clear"
+                                    class="buscar-clear-btn"
+                                    style="display:none"
+                                    onclick="limpiarBuscadorSalida()"
+                                    title="Limpiar">✕</button>
                             </div>
-                            <div id="sal-codigo-interno"
-                                class="sal-codigo-interno hidden">
+                            <div id="sal-sugerencias" class="sal-sugerencias hidden"></div>
+                            <div id="sal-codigo-interno" class="sal-codigo-interno hidden">
                                 <span class="sal-codigo-label">Código:</span>
                                 <code id="sal-codigo-val" class="serie-code"></code>
                             </div>
                         </div>
 
-                        <!-- Serie o cantidad -->
                         <div class="field" id="sal-id-wrap">
                             <label id="sal-id-label">SERIE <span class="req">*</span></label>
                             <div class="scanner-wrap">
@@ -2974,43 +2949,38 @@ async function abrirModalSalida() {
                             </div>
                         </div>
 
-                        <!-- Estado del material -->
                         <div class="field">
                             <label>ESTADO DEL MATERIAL</label>
                             <div class="radio-group" id="sal-estado-grupo">
                                 <label class="radio-opt active">
                                     <input type="radio" name="estado_material"
-                                        value="nuevo" checked />
-                                    Nuevo
+                                        value="nuevo" checked />Nuevo
                                 </label>
                                 <label class="radio-opt">
                                     <input type="radio" name="estado_material"
-                                        value="usado" />
-                                    Usado
+                                        value="usado" />Usado
                                 </label>
                                 <label class="radio-opt">
                                     <input type="radio" name="estado_material"
-                                        value="reparado" />
-                                    Reparado
+                                        value="reparado" />Reparado
                                 </label>
                             </div>
                         </div>
 
-                        <!-- Botón Añadir al carrito -->
                         <div class="field">
-                            <button type="button" class="btn-outline-sm"
+                            <button type="button"
+                                class="btn-outline-sm"
                                 onclick="agregarAlCarritoSalida()"
                                 style="width:100%;justify-content:center">
                                 ➕ Añadir a la lista
                             </button>
                         </div>
 
-                        <!-- Lista del carrito -->
-                        <div class="field field-full">
+                        <div class="field">
                             <label>ARTÍCULOS A ENTREGAR
                                 <span id="carrito-count"
                                     class="series-count-badge"
-                                    style="display:none">0</span>
+                                    style="display:none"></span>
                             </label>
                             <div id="carrito-salida" class="carrito-vacio">
                                 Sin artículos agregados aún
@@ -3019,10 +2989,9 @@ async function abrirModalSalida() {
 
                     </div>
 
-                    <!-- ── Columna derecha ───────────────── -->
+                    <!-- COLUMNA DERECHA -->
                     <div class="salida-col">
 
-                        <!-- Técnico -->
                         <div class="field">
                             <label>TÉCNICO RESPONSABLE <span class="req">*</span></label>
                             <select id="sal-tecnico" required
@@ -3032,7 +3001,6 @@ async function abrirModalSalida() {
                             </select>
                         </div>
 
-                        <!-- Cuadrilla (auto) -->
                         <div class="field">
                             <label>CUADRILLA / CÓDIGO</label>
                             <input type="text" id="sal-cuadrilla" readonly
@@ -3040,7 +3008,6 @@ async function abrirModalSalida() {
                                 style="opacity:.7;cursor:not-allowed" />
                         </div>
 
-                        <!-- Motivo -->
                         <div class="field">
                             <label>MOTIVO <span class="req">*</span></label>
                             <select id="sal-motivo" required>
@@ -3052,29 +3019,25 @@ async function abrirModalSalida() {
                             </select>
                         </div>
 
-                        <!-- Destino -->
                         <div class="field">
                             <label>DESTINO / CLIENTE</label>
                             <input type="text" id="sal-destino"
-                                placeholder="Dirección, cliente o cuadrilla" />
+                                placeholder="Dirección o cliente" />
                         </div>
 
-                        <!-- Notas -->
                         <div class="field">
                             <label>NOTAS</label>
                             <textarea id="sal-notas" rows="2"
                                 placeholder="Observaciones…"></textarea>
                         </div>
 
-                        <!-- Firma -->
                         <div class="field">
                             <label>FIRMA DE RECIBIDO
                                 <button type="button" class="btn-autogen"
                                     onclick="limpiarFirma()">✕ Limpiar</button>
                             </label>
                             <div class="firma-wrap">
-                                <canvas id="firma-canvas"
-                                    class="firma-canvas"
+                                <canvas id="firma-canvas" class="firma-canvas"
                                     width="280" height="100"></canvas>
                                 <div class="firma-hint">
                                     Firma aquí con el dedo o mouse
@@ -3084,7 +3047,7 @@ async function abrirModalSalida() {
 
                     </div>
                 </div>
-                </div><!-- /modal-body -->
+                </div>
 
                 <div class="modal-foot">
                     <button type="button" class="btn-ghost-sm"
@@ -3094,15 +3057,205 @@ async function abrirModalSalida() {
                     </button>
                 </div>
                 </form>
+
             </div>
         </div>`);
 
-    // Inicializar canvas y OT
     setTimeout(initFirmaCanvas, 100);
     generarNumeroOT().then(ot => {
-        const campo = document.getElementById('sal-ot');
-        if (campo && !campo.value) campo.value = ot;
+        const el = document.getElementById('sal-ot');
+        if (el && !el.value) el.value = ot;
     });
+}
+
+// ── Buscador predictivo ───────────────────────────────────
+
+async function buscarArticuloSalida(q) {
+    try {
+        clearTimeout(_buscarTimer);
+
+        const sugEl = document.getElementById('sal-sugerencias');
+        const btnX  = document.getElementById('sal-buscar-clear');
+        const qClean = (q || '').trim();
+
+        if (btnX) btnX.style.display = qClean ? 'flex' : 'none';
+
+        if (!qClean) {
+            if (sugEl) sugEl.classList.add('hidden');
+            return;
+        }
+
+        // Series/códigos numéricos: buscar desde 1 char
+        // Texto: desde 2 chars
+        const minLen = /^\d/.test(qClean) ? 1 : 2;
+        if (qClean.length < minLen) {
+            if (sugEl) sugEl.classList.add('hidden');
+            return;
+        }
+
+        _buscarTimer = setTimeout(async () => {
+            try {
+                const qLow = qClean.toLowerCase().trim();
+                console.log('PROINTEL búsqueda — caché:', cacheInventario.length, 'items, query:', qClean);
+
+                // Buscar en caché primero
+                let resultados = cacheInventario.filter(i =>
+                    (i.estado || '').toLowerCase() === 'disponible' &&
+                    (
+                        (i.nombre   || '').toLowerCase().includes(qLow) ||
+                        (i.articulo || '').toLowerCase().includes(qLow) ||
+                        (i.codigo   || '').toLowerCase().includes(qLow) ||
+                        (i.serie    || '').toLowerCase().includes(qLow)
+                    )
+                );
+
+                // Si caché vacío, consultar BD directamente
+                if (!resultados.length) {
+                    const { data } = await window.supabase
+                        .from('bodega')
+                        .select('id,nombre,articulo,codigo,serie,tipo_material,cantidad,estado,precio,unidad')
+                        .or(`nombre.ilike.%${qClean}%,articulo.ilike.%${qClean}%,codigo.ilike.%${qClean}%,serie.ilike.%${qClean}%`)
+                        .ilike('estado', 'disponible')
+                        .limit(12);
+                    resultados = (data || []).filter(i =>
+                        (i.estado || '').toLowerCase() === 'disponible'
+                    );
+                }
+
+                if (!sugEl) return;
+
+                if (!resultados.length) {
+                    sugEl.innerHTML = `<div class="sal-sug-empty">
+                        Sin coincidencias para "<strong>${esc(qClean)}</strong>"
+                        <div style="font-size:.72rem;margin-top:.2rem;color:var(--muted)">
+                            Prueba con nombre, código o serie
+                        </div>
+                    </div>`;
+                    sugEl.classList.remove('hidden');
+                    return;
+                }
+
+                // Auto-seleccionar si serie exacta y un solo resultado
+                const exacto = resultados.find(i =>
+                    (i.serie || '').toLowerCase() === qLow
+                );
+                if (exacto && resultados.length === 1) {
+                    seleccionarArticuloSalida(exacto);
+                    return;
+                }
+
+                // Renderizar sugerencias con highlight
+                sugEl.innerHTML = resultados.slice(0, 10).map(i => {
+                    const esMisc   = i.tipo_material === 'miscelaneo';
+                    const stock    = esMisc
+                        ? `${i.cantidad || 0} ${i.unidad || 'und'}`
+                        : '1 und';
+                    const nombre   = esc(i.nombre || i.articulo || '—');
+                    // Escapar caracteres especiales para usar en RegExp
+                    const safeQ    = qLow.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+                    const nombreHL = nombre.replace(
+                        new RegExp('(' + safeQ + ')', 'gi'),
+                        '<mark style="background:rgba(0,200,240,.2);color:var(--cyan);border-radius:2px">$1</mark>'
+                    );
+                    const itemJSON = JSON.stringify(i).replace(/"/g, '&quot;');
+                    return `<div class="sal-sug-item" tabindex="0"
+                            onclick="seleccionarArticuloSalida(${itemJSON})"
+                            onkeydown="if(event.key==='Enter')seleccionarArticuloSalida(${itemJSON})">
+                        <div class="sal-sug-nombre">${nombreHL}</div>
+                        <div class="sal-sug-meta">
+                            <code>${esc(i.codigo || '—')}</code>
+                            ${i.serie ? `<span class="serie-code" style="font-size:.68rem">${esc(i.serie)}</span>` : ''}
+                            <span class="badge badge-disponible" style="font-size:.65rem">Disponible</span>
+                            <span style="color:var(--dim);font-size:.78rem">${stock}</span>
+                            <span class="td-price">$${parseFloat(i.precio || 0).toFixed(2)}</span>
+                        </div>
+                    </div>`;
+                }).join('');
+
+                sugEl.classList.remove('hidden');
+
+            } catch (innerErr) {
+                console.warn('PROINTEL — búsqueda interna:', innerErr.message);
+            }
+        }, 250);
+
+    } catch (err) {
+        console.warn('PROINTEL — buscarArticuloSalida:', err.message);
+    }
+}
+
+function seleccionarArticuloSalida(item) {
+    _articuloSeleccionado = item;
+
+    const buscarEl = document.getElementById('sal-articulo-buscar');
+    const sugEl    = document.getElementById('sal-sugerencias');
+    const stockEl  = document.getElementById('sal-stock-badge');
+    const codWrap  = document.getElementById('sal-codigo-interno');
+    const codVal   = document.getElementById('sal-codigo-val');
+    const identEl  = document.getElementById('sal-identificador');
+    const lblEl    = document.getElementById('sal-id-label');
+    const badgeEl  = document.getElementById('sal-tipo-badge');
+    const btnX     = document.getElementById('sal-buscar-clear');
+
+    if (buscarEl) { buscarEl.value = item.nombre || item.articulo || ''; buscarEl.blur(); }
+    if (sugEl)    sugEl.classList.add('hidden');
+    if (btnX)     btnX.style.display = 'none';
+
+    // Badge de stock
+    if (stockEl) {
+        const esMisc   = item.tipo_material === 'miscelaneo';
+        const stockTxt = esMisc ? `Stock: ${item.cantidad || 0}` : '1 unidad';
+        const ok       = (item.estado || '').toLowerCase() === 'disponible';
+        stockEl.textContent    = stockTxt;
+        stockEl.style.display  = 'inline-block';
+        stockEl.style.background = ok ? 'rgba(0,230,118,.15)' : 'rgba(255,77,109,.15)';
+        stockEl.style.color    = ok ? '#00e676' : '#ff4d6d';
+        stockEl.style.border   = ok
+            ? '1px solid rgba(0,230,118,.3)' : '1px solid rgba(255,77,109,.3)';
+    }
+
+    // Código interno
+    if (codWrap && codVal) {
+        if (item.codigo) { codVal.textContent = item.codigo; codWrap.classList.remove('hidden'); }
+        else              { codWrap.classList.add('hidden'); }
+    }
+
+    // Adaptar campo serie/cantidad
+    const esSeriado = !item.tipo_material || item.tipo_material === 'seriado';
+    if (esSeriado) {
+        if (lblEl)   lblEl.innerHTML  = 'NÚMERO DE SERIE <span class="req">*</span>';
+        if (badgeEl) { badgeEl.textContent = 'SERIADO';    badgeEl.className = 'tipo-badge tipo-seriado'; }
+        if (identEl) { identEl.type = 'text'; identEl.placeholder = 'Escanea o escribe la serie…'; identEl.value = item.serie || ''; }
+    } else {
+        if (lblEl)   lblEl.innerHTML  = 'CANTIDAD A RETIRAR <span class="req">*</span>';
+        if (badgeEl) { badgeEl.textContent = 'MISCELÁNEOS'; badgeEl.className = 'tipo-badge tipo-cantidad'; }
+        if (identEl) { identEl.type = 'number'; identEl.placeholder = '1'; identEl.value = '1'; identEl.min = 1; identEl.max = item.cantidad || 999; }
+    }
+    if (identEl) identEl.focus();
+}
+
+function limpiarBuscadorSalida() {
+    const els = ['sal-articulo-buscar','sal-sugerencias','sal-codigo-interno','sal-stock-badge'];
+    document.getElementById('sal-articulo-buscar') && (document.getElementById('sal-articulo-buscar').value = '');
+    document.getElementById('sal-sugerencias')?.classList.add('hidden');
+    document.getElementById('sal-codigo-interno')?.classList.add('hidden');
+    document.getElementById('sal-stock-badge') && (document.getElementById('sal-stock-badge').style.display = 'none');
+    document.getElementById('sal-buscar-clear') && (document.getElementById('sal-buscar-clear').style.display = 'none');
+    _articuloSeleccionado = null;
+    document.getElementById('sal-articulo-buscar')?.focus();
+}
+
+function navSugerencias(e) {
+    if (e.key === 'Escape') {
+        document.getElementById('sal-sugerencias')?.classList.add('hidden');
+    }
+}
+
+function autoFillCuadrilla(sel) {
+    const opt  = sel.options[sel.selectedIndex];
+    const cuad = opt.getAttribute('data-cuadrilla') || '';
+    const el   = document.getElementById('sal-cuadrilla');
+    if (el) el.value = cuad || '(sin cuadrilla)';
 }
 
 // ── Carrito de salida ─────────────────────────────────────
@@ -3113,69 +3266,70 @@ function agregarAlCarritoSalida() {
         return;
     }
 
-    const identificador = document.getElementById('sal-identificador')?.value.trim() || '';
-    const estMat        = document.querySelector('input[name="estado_material"]:checked')?.value || 'nuevo';
-    const item          = _articuloSeleccionado;
-    const esSeriado     = !item.tipo_material || item.tipo_material === 'seriado';
+    const identEl  = document.getElementById('sal-identificador');
+    const estMat   = document.querySelector('input[name="estado_material"]:checked')?.value || 'nuevo';
+    const item     = _articuloSeleccionado;
+    const esMisc   = item.tipo_material === 'miscelaneo';
+    const esSer    = !esMisc;
+    const identVal = (identEl?.value || '').trim();
 
-    if (esSeriado && !identificador) {
+    if (esSer && !identVal) {
         alert('Ingresa o escanea el número de serie.');
-        document.getElementById('sal-identificador')?.focus();
+        identEl?.focus();
         return;
     }
 
-    // Evitar serie duplicada en el carrito
-    if (esSeriado && window._listaSalida.some(x => x.serie === identificador)) {
-        alert('La serie ' + identificador + ' ya está en la lista.');
+    // Serie duplicada
+    if (esSer && (window._listaSalida || []).some(x => x.serie === identVal)) {
+        alert('La serie ' + identVal + ' ya está en la lista.');
         return;
     }
 
-    const cantidad = esSeriado ? 1 : (parseInt(identificador) || 1);
+    const cantidad = esSer ? 1 : (parseInt(identVal) || 1);
 
-    // Verificar stock para misceláneos
-    if (!esSeriado) {
-        const yaEnCarrito = window._listaSalida
+    // Verificar stock disponible para misceláneos
+    if (esMisc) {
+        const yaEnLista = (window._listaSalida || [])
             .filter(x => x.bodega_id === item.id)
-            .reduce((sum, x) => sum + x.cantidad, 0);
-        const stockDisp = (item.cantidad || 1) - yaEnCarrito;
-        if (cantidad > stockDisp) {
-            alert('Stock insuficiente. Disponible: ' + stockDisp + ' unidad(es).');
+            .reduce((s, x) => s + x.cantidad, 0);
+        if (cantidad > (item.cantidad || 0) - yaEnLista) {
+            alert('Stock insuficiente. Disponible: ' + ((item.cantidad || 0) - yaEnLista));
             return;
         }
     }
 
-    const entrada = {
-        bodega_id:   item.id,
-        nombre:      item.nombre || item.articulo || '—',
-        codigo:      item.codigo || '',
-        serie:       esSeriado ? identificador : null,
+    window._listaSalida = window._listaSalida || [];
+    window._listaSalida.push({
+        bodega_id:       item.id,
+        nombre:          item.nombre || item.articulo || '—',
+        codigo:          item.codigo || '',
+        serie:           esSer ? identVal : null,
         cantidad,
-        esSeriado,
+        esSer,
         estado_material: estMat,
-    };
+    });
 
-    window._listaSalida.push(entrada);
-
-    // Limpiar selector para siguiente artículo
+    // Limpiar para siguiente artículo
     _articuloSeleccionado = null;
-    const buscarEl = document.getElementById('sal-articulo-buscar');
-    if (buscarEl) buscarEl.value = '';
-    const idEl = document.getElementById('sal-identificador');
-    if (idEl) idEl.value = '';
+    if (document.getElementById('sal-articulo-buscar'))
+        document.getElementById('sal-articulo-buscar').value = '';
+    if (identEl) identEl.value = '';
     document.getElementById('sal-codigo-interno')?.classList.add('hidden');
     document.getElementById('sal-sugerencias')?.classList.add('hidden');
+    document.getElementById('sal-buscar-clear') &&
+        (document.getElementById('sal-buscar-clear').style.display = 'none');
 
     renderCarritoSalida();
 }
 
 function renderCarritoSalida() {
-    const cont  = document.getElementById('carrito-salida');
-    const badge = document.getElementById('carrito-count');
-    const lista = window._listaSalida || [];
+    const cont   = document.getElementById('carrito-salida');
+    const badge  = document.getElementById('carrito-count');
+    const lista  = window._listaSalida || [];
 
     if (badge) {
-        badge.textContent    = lista.length;
-        badge.style.display  = lista.length ? 'inline-block' : 'none';
+        badge.textContent   = lista.length;
+        badge.style.display = lista.length ? 'inline-block' : 'none';
         badge.style.background = 'rgba(0,200,240,.15)';
         badge.style.color      = 'var(--cyan)';
         badge.style.border     = '1px solid var(--border-cyan)';
@@ -3204,293 +3358,56 @@ function renderCarritoSalida() {
 }
 
 function quitarDelCarrito(idx) {
-    window._listaSalida.splice(idx, 1);
+    if (window._listaSalida) window._listaSalida.splice(idx, 1);
     renderCarritoSalida();
 }
 
+// ── Guardar salida (insert masivo) ────────────────────────
 
-async function buscarArticuloSalida(q) {
-    clearTimeout(_buscarTimer);
-    const sugEl  = document.getElementById('sal-sugerencias');
-    const btnX   = document.getElementById('sal-buscar-clear');
-    const qClean = (q || '').trim();
-
-    // Mostrar / ocultar botón ✕
-    if (btnX) btnX.style.display = qClean ? 'flex' : 'none';
-
-    if (!qClean) {
-        if (sugEl) sugEl.classList.add('hidden');
-        return;
-    }
-
-    // Esperar al menos 1 carácter — útil para escaneo de series
-    // Para búsquedas generales, esperar 2+ para evitar ruido
-    const minLen = /^\d/.test(qClean) ? 1 : 2; // números desde 1 char (series/códigos)
-    if (qClean.length < minLen) {
-        if (sugEl) sugEl.classList.add('hidden');
-        return;
-    }
-
-    _buscarTimer = setTimeout(async () => {
-        const qLow = qClean.toLowerCase();
-
-        // Debug: cuántos items tiene el caché
-        console.log('PROINTEL búsqueda — caché:', cacheInventario.length, 'items, query:', qClean);
-
-        // Buscar en caché local primero (más rápido)
-        let resultados = cacheInventario.filter(i =>
-            ((i.nombre   ||'').toLowerCase().includes(qLow) ||
-             (i.articulo ||'').toLowerCase().includes(qLow) ||
-             (i.codigo   ||'').toLowerCase().includes(qLow) ||
-             (i.serie    ||'').toLowerCase().includes(qLow)) &&
-            (i.estado||'').toLowerCase() === 'disponible'
-            // asignado_a: no filtrar aquí, bodega recién ingresada puede tener null o ''
-        );
-
-        // Si no hay en caché, consultar Supabase
-        if (!resultados.length) {
-            try {
-                const { data } = await window.supabase
-                    .from('bodega')
-                    .select('id,nombre,articulo,codigo,serie,tipo_material,cantidad,estado,precio,unidad')
-                    .or(`nombre.ilike.%${qClean}%,articulo.ilike.%${qClean}%,codigo.ilike.%${qClean}%,serie.ilike.%${qClean}%`)
-                    .ilike('estado', 'disponible')   // case-insensitive: DISPONIBLE = disponible
-                    .limit(12);
-                // Filtro local: excluir asignados a técnico (null, '' o undefined)
-                resultados = (data || []).filter(i =>
-                    (i.estado||'').toLowerCase() === 'disponible' &&
-                    !i.asignado_a
-                );
-            } catch (err) {
-                console.warn('PROINTEL — búsqueda fallida:', err.message);
-                resultados = [];
-            }
-        }
-
-        if (!sugEl) return;
-
-        if (!resultados.length) {
-            sugEl.innerHTML = `<div class="sal-sug-empty">
-                Sin coincidencias para "<strong>${esc(qClean)}</strong>"
-                <div style="font-size:.72rem;margin-top:.2rem;color:var(--muted)">
-                    Prueba con nombre, código o número de serie
-                </div>
-            </div>`;
-            sugEl.classList.remove('hidden');
-            return;
-        }
-
-        // Detectar coincidencia exacta de serie → auto-seleccionar
-        const exactoSerie = resultados.find(i =>
-            (i.serie||'').toLowerCase() === qLow
-        );
-        if (exactoSerie && resultados.length === 1) {
-            seleccionarArticuloSalida(exactoSerie);
-            return;
-        }
-
-        sugEl.innerHTML = resultados.slice(0, 10).map(i => {
-            const esMisc = i.tipo_material === 'miscelaneo';
-            const stock  = esMisc ? ` · ${i.cantidad||0} ${i.unidad||'und'}` : ' · 1 und';
-            const precio = parseFloat(i.precio||0).toFixed(2);
-
-            // Resaltar el término buscado dentro del nombre
-            const nombre    = esc(i.nombre||i.articulo||'—');
-            const escapeRE  = qLow.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const nombreHL  = nombre.replace(
-                new RegExp('(' + escapeRE + ')', 'gi'),
-                '<mark style="background:rgba(0,200,240,.25);color:var(--cyan);border-radius:2px">$1</mark>'
-            );
-
-            return `<div class="sal-sug-item"
-                    tabindex="0"
-                    onclick="seleccionarArticuloSalida(${JSON.stringify(i).replace(/"/g,'&quot;')})"
-                    onkeydown="if(event.key==='Enter')seleccionarArticuloSalida(${JSON.stringify(i).replace(/"/g,'&quot;')})">
-                <div class="sal-sug-nombre">${nombreHL}</div>
-                <div class="sal-sug-meta">
-                    <code>${esc(i.codigo||'—')}</code>
-                    ${i.serie ? `<span class="serie-code" style="font-size:.68rem">${esc(i.serie)}</span>` : ''}
-                    <span class="badge badge-disponible" style="font-size:.65rem">Disponible</span>
-                    <span style="color:var(--dim);font-size:.78rem">${stock}</span>
-                    <span class="td-price">$${precio}</span>
-                </div>
-            </div>`;
-        }).join('');
-
-        sugEl.classList.remove('hidden');
-    }, 250); // Debounce más rápido (250ms vs 300ms)
-}
-
-function seleccionarArticuloSalida(item) {
-    _articuloSeleccionado = item;
-    const buscarEl = document.getElementById('sal-articulo-buscar');
-    const sugEl    = document.getElementById('sal-sugerencias');
-    const stockEl  = document.getElementById('sal-stock-badge');
-    const codWrap  = document.getElementById('sal-codigo-interno');
-    const codVal   = document.getElementById('sal-codigo-val');
-    const identEl  = document.getElementById('sal-identificador');
-    const lblEl    = document.getElementById('lbl-identificador');
-    const badgeEl  = document.getElementById('sal-tipo-badge');
-
-    if (buscarEl) {
-        buscarEl.value = item.nombre || item.articulo || '';
-        buscarEl.blur(); // Ocultar teclado en móvil al seleccionar
-    }
-    if (sugEl)  sugEl.classList.add('hidden');
-    // Ocultar botón ✕ del buscador al seleccionar
-    const btnX = document.getElementById('sal-buscar-clear');
-    if (btnX) btnX.style.display = 'none';
-
-    // Mostrar stock disponible
-    if (stockEl) {
-        const esSeriado = !item.tipo_material || item.tipo_material === 'seriado';
-        stockEl.textContent = esSeriado ? '1 unidad' : `Stock: ${item.cantidad||0}`;
-        stockEl.style.display = 'inline-block';
-        stockEl.style.background = (item.estado||'') === 'disponible'
-            ? 'rgba(0,230,118,.15)' : 'rgba(255,77,109,.15)';
-        stockEl.style.color = (item.estado||'') === 'disponible' ? '#00e676' : '#ff4d6d';
-        stockEl.style.border = (item.estado||'') === 'disponible'
-            ? '1px solid rgba(0,230,118,.3)' : '1px solid rgba(255,77,109,.3)';
-    }
-
-    // Mostrar código interno
-    if (codWrap && codVal && item.codigo) {
-        codVal.textContent = item.codigo;
-        codWrap.classList.remove('hidden');
-    } else if (codWrap) {
-        codWrap.classList.add('hidden');
-    }
-
-    // Adaptar campo identificador según tipo
-    const esSeriado = !item.tipo_material || item.tipo_material === 'seriado';
-    if (esSeriado) {
-        if (lblEl)    lblEl.textContent = 'NÚMERO DE SERIE / ESCÁNER';
-        if (badgeEl)  { badgeEl.textContent = 'SERIADO'; badgeEl.className = 'tipo-badge tipo-seriado'; }
-        if (identEl)  { identEl.type = 'text'; identEl.placeholder = 'Escanea o escribe la serie…'; identEl.value = item.serie||''; }
-    } else {
-        if (lblEl)    lblEl.textContent = 'CANTIDAD A RETIRAR';
-        if (badgeEl)  { badgeEl.textContent = 'MISCELÁNEOS'; badgeEl.className = 'tipo-badge tipo-cantidad'; }
-        if (identEl)  { identEl.type = 'number'; identEl.placeholder = '1'; identEl.value = '1'; identEl.min = 1; identEl.max = item.cantidad||999; }
-    }
-    if (identEl) identEl.focus();
-}
-
-function limpiarBuscadorSalida() {
-    const buscarEl = document.getElementById('sal-articulo-buscar');
-    const sugEl    = document.getElementById('sal-sugerencias');
-    const btnX     = document.getElementById('sal-buscar-clear');
-    const codWrap  = document.getElementById('sal-codigo-interno');
-    const stockEl  = document.getElementById('sal-stock-badge');
-
-    if (buscarEl) { buscarEl.value = ''; buscarEl.focus(); }
-    if (sugEl)    sugEl.classList.add('hidden');
-    if (btnX)     btnX.style.display = 'none';
-    if (codWrap)  codWrap.classList.add('hidden');
-    if (stockEl)  stockEl.style.display = 'none';
-
-    _articuloSeleccionado = null;
-}
-
-function navSugerencias(e) {
-    const items = document.querySelectorAll('.sal-sug-item');
-    if (!items.length) return;
-    if (e.key === 'Escape') { document.getElementById('sal-sugerencias')?.classList.add('hidden'); }
-}
-
-function autoFillCuadrilla(sel) {
-    const opt = sel.options[sel.selectedIndex];
-    const cuad = opt.getAttribute('data-cuadrilla') || '';
-    const cuadEl = document.getElementById('sal-cuadrilla');
-    if (cuadEl) cuadEl.value = cuad || '(sin cuadrilla asignada)';
-}
-
-// ── Canvas de firma digital ───────────────────────────────
-function initFirmaCanvas() {
-    const canvas = document.getElementById('firma-canvas');
-    if (!canvas) return;
-    _firmaCanvas = canvas;
-    _firmaCtx    = canvas.getContext('2d');
-    _firmaCtx.strokeStyle = '#00c8f0';
-    _firmaCtx.lineWidth   = 2;
-    _firmaCtx.lineCap     = 'round';
-
-    const getPos = (e) => {
-        const r = canvas.getBoundingClientRect();
-        const src = e.touches ? e.touches[0] : e;
-        return { x: src.clientX - r.left, y: src.clientY - r.top };
-    };
-
-    canvas.addEventListener('mousedown',  (e) => { _firmaDibujando = true; const p = getPos(e); _firmaCtx.beginPath(); _firmaCtx.moveTo(p.x, p.y); });
-    canvas.addEventListener('mousemove',  (e) => { if (!_firmaDibujando) return; const p = getPos(e); _firmaCtx.lineTo(p.x, p.y); _firmaCtx.stroke(); });
-    canvas.addEventListener('mouseup',    () => { _firmaDibujando = false; });
-    canvas.addEventListener('touchstart', (e) => { e.preventDefault(); _firmaDibujando = true; const p = getPos(e); _firmaCtx.beginPath(); _firmaCtx.moveTo(p.x, p.y); }, { passive:false });
-    canvas.addEventListener('touchmove',  (e) => { e.preventDefault(); if (!_firmaDibujando) return; const p = getPos(e); _firmaCtx.lineTo(p.x, p.y); _firmaCtx.stroke(); }, { passive:false });
-    canvas.addEventListener('touchend',   () => { _firmaDibujando = false; });
-}
-
-function limpiarFirma() {
-    if (_firmaCtx && _firmaCanvas) {
-        _firmaCtx.clearRect(0, 0, _firmaCanvas.width, _firmaCanvas.height);
-    }
-}
-
-function obtenerFirmaBase64() {
-    if (!_firmaCanvas) return null;
-    // Verificar si hay algo dibujado
-    const data = _firmaCtx.getImageData(0, 0, _firmaCanvas.width, _firmaCanvas.height).data;
-    const hayFirma = data.some(v => v !== 0);
-    return hayFirma ? _firmaCanvas.toDataURL('image/png') : null;
-}
-
-// ── Guardar salida ────────────────────────────────────────
 async function guardarSalida(e) {
     e.preventDefault();
 
-    const ot       = document.getElementById('sal-ot')?.value.trim();
-    const motivo   = document.getElementById('sal-motivo')?.value;
-    const tecnico  = document.getElementById('sal-tecnico')?.value;
-    const cuadrilla= document.getElementById('sal-cuadrilla')?.value.trim() || null;
-    const destino  = document.getElementById('sal-destino')?.value.trim()   || null;
-    const notas    = document.getElementById('sal-notas')?.value.trim()     || null;
-    const lista    = window._listaSalida || [];
+    const ot      = (document.getElementById('sal-ot')?.value || '').trim();
+    const motivo  = document.getElementById('sal-motivo')?.value || '';
+    const tecnico = document.getElementById('sal-tecnico')?.value || '';
+    const cuad    = (document.getElementById('sal-cuadrilla')?.value || '').trim() || null;
+    const destino = (document.getElementById('sal-destino')?.value || '').trim() || null;
+    const notas   = (document.getElementById('sal-notas')?.value || '').trim()   || null;
+    const lista   = window._listaSalida || [];
 
-    // Validaciones
     if (!ot)           { alert('El número de OT es obligatorio.'); return; }
     if (!tecnico)      { alert('Selecciona el técnico responsable.'); return; }
-    if (!lista.length) { alert('Agrega al menos un artículo a la lista antes de registrar.'); return; }
+    if (!lista.length) { alert('Agrega al menos un artículo a la lista.'); return; }
 
     const btn    = document.getElementById('btn-guardar-sal');
     const btnTxt = btn?.textContent || 'Registrar Salida';
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Guardando…'; }
 
-    // Capturar firma comprimida
+    // Firma comprimida
     let firma = null;
     try {
-        const canvas = document.getElementById('firma-canvas');
-        if (canvas) {
-            const ctx    = canvas.getContext('2d');
-            const pixeles = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-            if (Array.from(pixeles).some(v => v !== 0)) {
-                firma = canvas.toDataURL('image/jpeg', 0.7);
-            }
+        const cv = document.getElementById('firma-canvas');
+        if (cv) {
+            const px = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+            if (Array.from(px).some(v => v !== 0)) firma = cv.toDataURL('image/jpeg', 0.7);
         }
     } catch { firma = null; }
 
     try {
-        // Resolver cuadrilla del técnico desde BD
-        let cuadrillaFinal = cuadrilla;
-        let usuarioTecnico = tecnico;
+        // Resolver cuadrilla del técnico
+        let cuadFinal = cuad;
+        let usrTec    = tecnico;
         try {
             const { data: tData } = await window.supabase
                 .from('usuarios')
                 .select('usuario, cuadrilla')
                 .or(`nombre_completo.eq.${tecnico},usuario.eq.${tecnico}`)
                 .maybeSingle();
-            if (tData?.cuadrilla) cuadrillaFinal = tData.cuadrilla;
-            if (tData?.usuario)   usuarioTecnico  = tData.usuario;
-        } catch { /* usar valores del formulario */ }
+            if (tData?.cuadrilla) cuadFinal = tData.cuadrilla;
+            if (tData?.usuario)   usrTec    = tData.usuario;
+        } catch {}
 
-        // Construir lote de registros para inserción masiva
+        // Insert masivo — un registro por artículo, misma OT y firma
         const lote = lista.map(item => ({
             bodega_id:       item.bodega_id,
             numero_serie:    item.serie || null,
@@ -3499,60 +3416,52 @@ async function guardarSalida(e) {
             motivo,
             destino,
             responsable:     tecnico,
-            cuadrilla:       cuadrillaFinal,
+            cuadrilla:       cuadFinal,
             numero_ot:       ot,
             estado_material: item.estado_material,
             firma_base64:    firma,
-            notas
+            notas,
         }));
 
-        // Inserción masiva — un solo insert para todos los artículos
-        const { error: errSal } = await window.supabase
-            .from('salidas')
-            .insert(lote);
-
+        const { error: errSal } = await window.supabase.from('salidas').insert(lote);
         if (errSal) {
             const cod = errSal.code ? ` [${errSal.code}]` : '';
-            throw new Error(`Error al insertar salidas${cod}: ${errSal.message}${errSal.details ? ' | ' + errSal.details : ''}`);
+            throw new Error('Error al insertar salidas' + cod + ': ' + errSal.message +
+                (errSal.details ? ' | ' + errSal.details : ''));
         }
 
-        // Actualizar estado en bodega — para cada artículo de la lista
-        const nuevoEstado = motivo === 'venta'       ? 'vendido'
-                          : motivo === 'daño'        ? 'dañado'
-                          : motivo === 'instalación' ? 'entregado'
-                          : motivo === 'traslado'    ? 'entregado'
-                          : 'reservado';
+        // Actualizar estado en bodega por cada artículo
+        const nuevoEst = motivo === 'venta'       ? 'vendido'
+                       : motivo === 'daño'        ? 'dañado'
+                       : ['instalación','traslado'].includes(motivo) ? 'entregado'
+                       : 'reservado';
 
         for (const item of lista) {
-            const updateData = {
-                estado:      nuevoEstado,
-                cuadrilla:   cuadrillaFinal,
-                asignado_a:  usuarioTecnico,
-                responsable: usuarioTecnico,
+            const upd = {
+                estado:      nuevoEst,
+                cuadrilla:   cuadFinal,
+                asignado_a:  usrTec,
+                responsable: usrTec,
             };
-
-            if (item.esSeriado) {
-                // Actualizar por ID y por serie
-                await window.supabase.from('bodega')
-                    .update(updateData).eq('id', item.bodega_id);
+            if (item.esSer) {
+                await window.supabase.from('bodega').update(upd).eq('id', item.bodega_id);
                 if (item.serie) {
                     await window.supabase.from('bodega')
-                        .update({ estado: nuevoEstado })
+                        .update({ estado: nuevoEst })
                         .eq('serie', item.serie)
-                        .neq('estado', 'vendido');
+                        .not('estado', 'in', '("vendido","instalado")');
                 }
             } else {
-                // Misceláneo — restar cantidad
-                const { data: actual } = await window.supabase
+                const { data: act } = await window.supabase
                     .from('bodega').select('cantidad').eq('id', item.bodega_id).maybeSingle();
-                const nuevoStock = Math.max(0, (actual?.cantidad || 0) - item.cantidad);
+                const nuevo = Math.max(0, (act?.cantidad || 0) - item.cantidad);
                 await window.supabase.from('bodega')
-                    .update({ ...updateData, cantidad: nuevoStock, estado: nuevoStock <= 0 ? 'vendido' : nuevoEstado })
+                    .update({ ...upd, cantidad: nuevo, estado: nuevo <= 0 ? 'vendido' : nuevoEst })
                     .eq('id', item.bodega_id);
             }
         }
 
-        // Limpiar y cerrar
+        // Éxito
         window._listaSalida  = [];
         window._articuloSeleccionado = null;
         cacheInventario = [];
@@ -3560,7 +3469,7 @@ async function guardarSalida(e) {
         cargarSalidas();
 
     } catch (err) {
-        alert('❌ Error al registrar la salida:\n\n' + err.message);
+        alert('❌ ' + err.message);
         console.error('PROINTEL — guardarSalida:', err);
     } finally {
         if (btn) { btn.disabled = false; btn.textContent = btnTxt; }
