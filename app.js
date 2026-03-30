@@ -4404,23 +4404,44 @@ async function cargarMisArticulos() {
 
     try {
         const [resStock, resSalidas] = await Promise.all([
-            // Stock actual: artículos asignados al técnico
+            // Stock actual — filtro multi-columna con OR
+            // Busca en cuadrilla, asignado_a Y responsable simultáneamente
             (() => {
-                let q = window.supabase.from('bodega').select('*')
-        .not('estado', 'in', '("vendido","instalado")');
-                if (cuadrilla) {
-                    q = q.eq('cuadrilla', cuadrilla);
-                } else {
-                    q = q.or(`asignado_a.eq.${usuario},responsable.eq.${usuario}`);
+                if (!usuario && !cuadrilla) {
+                    // Sin datos del técnico — retornar vacío
+                    return Promise.resolve({ data: [], error: null });
                 }
-                return q.order('fecha_ingreso', { ascending: false });
+
+                // Construir condiciones OR dinámicamente
+                const condiciones = [];
+                if (usuario)    condiciones.push(`asignado_a.eq.${usuario}`);
+                if (usuario)    condiciones.push(`responsable.eq.${usuario}`);
+                if (cuadrilla)  condiciones.push(`cuadrilla.eq.${cuadrilla}`);
+                if (nombre && nombre !== usuario)
+                                condiciones.push(`asignado_a.eq.${nombre}`);
+                if (nombre && nombre !== usuario)
+                                condiciones.push(`responsable.eq.${nombre}`);
+
+                return window.supabase
+                    .from('bodega')
+                    .select('*')
+                    .not('estado', 'in', '("vendido","instalado")')
+                    .or(condiciones.join(','))
+                    .order('fecha_ingreso', { ascending: false });
             })(),
             // Historial: salidas donde él es el responsable
-            window.supabase
-                .from('salidas')
-                .select('*')
-                .or(`responsable.eq.${nombre},responsable.eq.${usuario},cuadrilla.eq.${cuadrilla||usuario}`)
-                .order('created_at', { ascending: false })
+            (() => {
+                const condSal = [];
+                if (usuario) condSal.push(`responsable.eq.${usuario}`);
+                if (nombre && nombre !== usuario) condSal.push(`responsable.eq.${nombre}`);
+                if (cuadrilla) condSal.push(`cuadrilla.eq.${cuadrilla}`);
+                if (!condSal.length) return Promise.resolve({ data: [], error: null });
+                return window.supabase
+                    .from('salidas')
+                    .select('*')
+                    .or(condSal.join(','))
+                    .order('created_at', { ascending: false });
+            })()
         ]);
 
         const items    = resStock.data   || [];
