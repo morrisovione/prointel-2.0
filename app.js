@@ -2530,8 +2530,8 @@ let _articuloSeleccionado = null;
 let _buscarTimer        = null;  // timer del buscador predictivo
 
 async function cargarSalidas() {
-    const content  = document.getElementById('dashboard-content');
-    const esTec    = (currentUser?.rol || '').toUpperCase() === 'TECNICO';
+    const content = document.getElementById('dashboard-content');
+    const esTec   = (currentUser?.rol || '').toUpperCase() === 'TECNICO';
 
     content.innerHTML = `
         <div class="module-header">
@@ -2539,14 +2539,8 @@ async function cargarSalidas() {
             <div class="header-actions">
                 <button class="btn-nav" onclick="cargarSalidas()">↺ Actualizar</button>
                 <a href="https://speed.cloudflare.com/" target="_blank"
-                    rel="noopener noreferrer"
-                    class="btn-outline-sm"
-                    title="Abrir test de red en pestaña nueva">
-                    ⚡ Probar Red
-                </a>
-                ${!esTec
-                    ? '<button class="btn-cyan" onclick="abrirModalSalida()">+ Registrar Salida</button>'
-                    : ''}
+                    rel="noopener noreferrer" class="btn-outline-sm">⚡ Probar Red</a>
+                ${!esTec ? '<button class="btn-cyan" onclick="abrirModalSalida()">+ Registrar Salida</button>' : ''}
             </div>
         </div>
         <div class="inv-stats" id="sal-stats">
@@ -2574,11 +2568,10 @@ async function cargarSalidas() {
         <p class="table-count" id="sal-count"></p>`;
 
     try {
-        // Consulta simple sin join para evitar el error de schema cache
-        // Luego enriquecemos con los datos de articulos y usuarios por separado
+        // Consulta con join FK — articulos(nombre,codigo) gracias al puente SQL
         let query = window.supabase
             .from('registros_salida')
-            .select('id, correlativo, articulo_id, tecnico_id, cantidad, fecha, firma')
+            .select('id, correlativo, articulo_id, tecnico_id, cantidad, fecha, firma, articulos(nombre, codigo, unidad_medida)')
             .order('correlativo', { ascending: false });
 
         if (esTec && currentUser?.id) {
@@ -2586,33 +2579,29 @@ async function cargarSalidas() {
         }
 
         const { data: salidas, error } = await query;
-        if (error) throw error;
 
-        cacheSalidas = salidas || [];
+        // Fallback: si el join falla, traer sin relación
+        let rows = salidas;
+        if (error) {
+            console.warn('PROINTEL — join articulos falló, usando fallback:', error.message);
+            const { data: fallback } = await window.supabase
+                .from('registros_salida')
+                .select('id, correlativo, articulo_id, tecnico_id, cantidad, fecha, firma')
+                .order('correlativo', { ascending: false });
+            rows = fallback || [];
+        }
 
-        // Si hay registros, enriquecer con nombres de articulos y usuarios
-        let artMap = {};
+        cacheSalidas = rows || [];
+
+        // Enriquecer técnicos por separado
+        const tecIds = [...new Set(cacheSalidas.map(s => s.tecnico_id).filter(Boolean))];
         let usrMap = {};
-
-        if (cacheSalidas.length) {
-            const artIds = [...new Set(cacheSalidas.map(s => s.articulo_id).filter(Boolean))];
-            const tecIds = [...new Set(cacheSalidas.map(s => s.tecnico_id).filter(Boolean))];
-
-            if (artIds.length) {
-                const { data: arts } = await window.supabase
-                    .from('articulos')
-                    .select('id, nombre, codigo, unidad_medida')
-                    .in('id', artIds);
-                (arts || []).forEach(a => { artMap[a.id] = a; });
-            }
-
-            if (tecIds.length) {
-                const { data: usrs } = await window.supabase
-                    .from('usuarios')
-                    .select('id, nombre_completo, usuario')
-                    .in('id', tecIds);
-                (usrs || []).forEach(u => { usrMap[u.id] = u; });
-            }
+        if (tecIds.length) {
+            const { data: usrs } = await window.supabase
+                .from('usuarios')
+                .select('id, nombre_completo, usuario')
+                .in('id', tecIds);
+            (usrs || []).forEach(u => { usrMap[u.id] = u; });
         }
 
         // Stats
@@ -2632,14 +2621,15 @@ async function cargarSalidas() {
         const count = document.getElementById('sal-count');
 
         if (!cacheSalidas.length) {
-            tbody.innerHTML = '<tr><td colspan="7" class="empty-row">No hay registros de salidas disponibles.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" class="empty-row">No hay registros de salidas.</td></tr>';
             if (count) count.textContent = '';
             return;
         }
 
         tbody.innerHTML = cacheSalidas.map((s, idx) => {
-            const art   = artMap[s.articulo_id]  || {};
-            const usr   = usrMap[s.tecnico_id]   || {};
+            // El join devuelve s.articulos como objeto; el fallback lo omite
+            const art   = s.articulos || {};
+            const usr   = usrMap[s.tecnico_id] || {};
             const fecha = s.fecha
                 ? new Date(s.fecha).toLocaleDateString('es-SV')
                 : '—';
@@ -2674,9 +2664,6 @@ async function cargarSalidas() {
         document.getElementById('sal-tbody').innerHTML =
             `<tr><td colspan="7" class="empty-row error-msg">
                 ❌ ${esc(err.message)}
-                <div style="font-size:.75rem;margin-top:.3rem;color:var(--dim)">
-                    Revisa la consola (F12) para más detalles.
-                </div>
             </td></tr>`;
     }
 }
@@ -4415,7 +4402,7 @@ async function cargarReportes() {
         const [rB, rF, rS, rT] = await Promise.all([
             window.supabase.from('bodega').select('nombre,articulo,tipo_material,estado,precio,fecha_ingreso'),
             window.supabase.from('facturas').select('estado,total,created_at'),
-            window.supabase.from('salidas').select('id,motivo,created_at'),
+            window.supabase.from('registros_salida').select('id,fecha,cantidad'),
             window.supabase.from('transferencias').select('id,estado')
         ]);
 
