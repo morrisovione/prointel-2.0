@@ -3276,7 +3276,7 @@ async function buscarArticuloSalida(q) {
                 const [resArt, resBodega] = await Promise.all([
                     window.supabase
                         .from('articulos')
-                        .select('id, codigo, nombre, categoria, unidad_medida, cant, cantidad')
+                        .select('id, codigo, nombre, categoria, unidad_medida, cantidad')
                         .or(`nombre.ilike.%${qClean}%,codigo.ilike.%${qClean}%`)
                         .limit(12),
                     window.supabase
@@ -3296,8 +3296,8 @@ async function buscarArticuloSalida(q) {
                 // Normalizar resultados de ambas fuentes al mismo formato
                 const deArticulos = (resArt.data || []).map(a => {
                     // Compatibilidad: la columna puede llamarse 'cant' o 'cantidad'
-                    const stock = a.cant ?? a.cantidad ?? null;
-                    console.log('Artículo seleccionado:', a.nombre, '| cant:', a.cant, '| cantidad:', a.cantidad, '| stock resuelto:', stock);
+                    const stock = a.cantidad ?? null;
+                    console.log('Artículo seleccionado:', a.nombre, '| cantidad:', a.cantidad, '| stock:', stock);
                     return {
                         _fuente:    'articulos',
                         _tipo:      'articulo',
@@ -3463,9 +3463,9 @@ function seleccionarArticuloSalida(item) {
     const esSeriado = !esMisc;
 
     // Resolver cantidad compatible con ambos esquemas (cant o cantidad)
-    const stockResuelto = item.cant ?? item.cantidad ?? null;
+    const stockResuelto = item.cantidad ?? null;
     if (stockResuelto !== null) item.cantidad = stockResuelto;
-    console.log('Artículo seleccionado:', item.nombre, '| cant:', item.cant, '| cantidad:', item.cantidad, '| stock:', stockResuelto);
+    console.log('Artículo seleccionado:', item.nombre, '| cantidad:', item.cantidad, '| stock:', stockResuelto);
 
     // Badge de stock
     if (stockEl) {
@@ -3570,7 +3570,7 @@ function agregarAlCarritoSalida() {
     // Cantidad para misceláneos
     const cantidad = esSer ? 1 : (parseInt(identVal) || 1);
     // Resolver maxStock: cant o cantidad según esquema
-    const maxStock = parseInt(item.cant ?? item.cantidad ?? 0);
+    const maxStock = parseInt(item.cantidad ?? 0);
 
     if (esMisc && cantidad > maxStock) {
         _notificar(`Stock insuficiente. Disponible: ${maxStock}`);
