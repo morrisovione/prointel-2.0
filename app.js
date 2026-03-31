@@ -9,7 +9,7 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 // CREDENCIALES SUPER USUARIO (HARDCODEADO)
 const SUPER_USER = {
     usuario: 'mgvillegas',
-    contraseña: 'nohayclave',
+    contraseña: 'nohayclave221',
     perfil: 'superuser'
 };
 
@@ -76,7 +76,7 @@ async function handleLogin(event) {
         // BUSCAR EN SUPABASE
         const { data, error } = await supabase
             .from('usuarios')
-            .select('id, usuario, nombre, perfil, contraseña')
+            .select('id, usuario, nombre_completo, clave, rol')
             .eq('usuario', username)
             .single();
 
@@ -85,12 +85,12 @@ async function handleLogin(event) {
             return;
         }
 
-        if (data.contraseña !== password) {
+        if (data.clave !== password) {
             showError(errorMsg, '❌ Contraseña incorrecta');
             return;
         }
 
-        loginSuccess(data.nombre, data.perfil);
+        loginSuccess(data.nombre_completo, data.rol);
 
     } catch (error) {
         console.error('❌ Error login:', error.message);
@@ -98,26 +98,29 @@ async function handleLogin(event) {
     }
 }
 
-function loginSuccess(nombre, perfil) {
+function loginSuccess(nombre, rol) {
     currentUser = nombre;
-    userProfile = perfil;
+    userProfile = rol;
 
     document.getElementById('userName').textContent = nombre;
     document.getElementById('userAvatar').textContent = nombre.charAt(0).toUpperCase();
     document.getElementById('greeting').textContent = `Bienvenido, ${nombre}`;
 
-    // ASIGNAR ROL EN UI
-    if (perfil === 'superuser') {
-        document.getElementById('userRole').textContent = 'Super Usuario';
+    // ASIGNAR PERMISOS SEGÚN ROL
+    if (rol === 'admin') {
+        // Admin = Super Usuario (acceso a todo)
+        document.getElementById('userRole').textContent = 'Administrador';
         document.getElementById('cardCreateUsers').style.display = 'block';
         document.getElementById('cardOT').style.display = 'block';
         document.getElementById('cardReportes').style.display = 'block';
-    } else if (perfil === 'administrativo') {
+    } else if (rol === 'administrativo') {
+        // Administrativo (acceso a OT + Reportes, NO crear usuarios)
         document.getElementById('userRole').textContent = 'Administrador';
         document.getElementById('cardCreateUsers').style.display = 'none';
         document.getElementById('cardOT').style.display = 'block';
         document.getElementById('cardReportes').style.display = 'block';
-    } else if (perfil === 'tecnico') {
+    } else if (rol === 'tecnico') {
+        // Técnico (solo Bodega)
         document.getElementById('userRole').textContent = 'Técnico';
         document.getElementById('cardCreateUsers').style.display = 'none';
         document.getElementById('cardOT').style.display = 'none';
@@ -125,7 +128,7 @@ function loginSuccess(nombre, perfil) {
     }
 
     showDashboard();
-    console.log(`✅ Login exitoso: ${nombre} (${perfil})`);
+    console.log(`✅ Login exitoso: ${nombre} (${rol})`);
 }
 
 // ═════════════════════════════════════════════════════════════════
@@ -165,9 +168,9 @@ async function handleCreateUser(event) {
             .from('usuarios')
             .insert({
                 usuario: username,
-                nombre: username,
-                perfil: profile,
-                contraseña: password
+                nombre_completo: username,
+                rol: profile,
+                clave: password
             })
             .select();
 
@@ -177,8 +180,8 @@ async function handleCreateUser(event) {
             return;
         }
 
-        const perfilDisplay = profile === 'administrativo' ? 'Administrador' : 'Técnico';
-        alert(`✅ Usuario "${username}" creado con perfil "${perfilDisplay}"`);
+        const rolDisplay = profile === 'administrativo' ? 'Administrador' : 'Técnico';
+        alert(`✅ Usuario "${username}" creado con rol "${rolDisplay}"`);
         closeCreateUserModal();
 
     } catch (error) {
