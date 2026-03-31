@@ -283,3 +283,10 @@ async function actualizarCantidadBodega(bodegaId, nuevaCantidad) {
         alert(`❌ Error: ${error.message}`);
     }
 }
+function simularLogin() {
+    currentUser = { nombre: "Ovidio", nombre_completo: "Ovidio (Técnico)" };
+    localStorage.setItem('prointel_session', JSON.stringify(currentUser));
+    document.getElementById('user-display').textContent = currentUser.nombre;
+    showSection('view-dashboard');
+    iniciarReloj();
+}
