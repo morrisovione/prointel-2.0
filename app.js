@@ -3484,37 +3484,51 @@ function seleccionarArticuloSalida(item) {
     if (sugEl)    sugEl.classList.add('hidden');
     if (btnX)     btnX.style.display = 'none';
 
-    // Detectar tipo — compatible con esquema nuevo (categoria) y viejo (tipo_material)
-    const cat       = (item.categoria || item.tipo_material || '').toUpperCase();
-    const esMisc    = cat === 'MISCELANEO' || cat === 'MISCELÁNEOS';
-    const esSeriado = !esMisc;
+    // ── Normalizar cantidad ──────────────────────────────────
+    // Puede llegar como: cantidad (bodega), cant (alias), stock, o null
+    const stockReal = item.cantidad ?? item.cant ?? item.stock ?? 0;
+    item.cantidad   = Number(stockReal) || 0;
 
-    // Resolver cantidad compatible con ambos esquemas (cant o cantidad)
-    const stockResuelto = item.cantidad ?? null;
-    if (stockResuelto !== null) item.cantidad = stockResuelto;
-    console.log('Artículo seleccionado:', item.nombre, '| cantidad:', item.cantidad, '| stock:', stockResuelto);
+    // ── Detectar tipo de artículo ─────────────────────────────
+    // Compatible con: categoria (esquema nuevo), tipo_material (bodega vieja)
+    const cat    = (item.categoria || item.tipo_material || '').toUpperCase().trim();
+    const esMisc = cat === 'MISCELANEO' || cat === 'MISCELÁNEOS' || cat === 'MISCELÁNEO';
+    const esSer  = !esMisc;
 
-    // Badge de stock
+    // ── LOG de diagnóstico ────────────────────────────────────
+    console.log('▶ Artículo seleccionado:', {
+        nombre:    item.nombre,
+        categoria: cat,
+        esMisc,
+        cantidad:  item.cantidad,
+        unidad:    item.unidad || item.unidad_medida || 'und',
+        _fuente:   item._fuente || '?',
+    });
+
+    // ── Badge de stock ────────────────────────────────────────
+    const unidad = item.unidad || item.unidad_medida || 'und';
     if (stockEl) {
-        const maxDisp  = esMisc ? (item.cantidad || 0) : 1;
-        const unidad   = item.unidad || item.unidad_medida || 'und';
-        stockEl.textContent   = esMisc ? `Stock: ${maxDisp} ${unidad}` : '1 unidad';
-        stockEl.style.display = 'inline-block';
-        const ok = esMisc ? maxDisp > 0 : true;
+        const ok   = esMisc ? item.cantidad > 0 : true;
+        const txt  = esMisc
+            ? `Stock: ${item.cantidad.toLocaleString()} ${unidad}`
+            : '1 unidad';
+        stockEl.textContent    = txt;
+        stockEl.style.display  = 'inline-block';
         stockEl.style.background = ok ? 'rgba(0,230,118,.15)' : 'rgba(255,77,109,.15)';
         stockEl.style.color      = ok ? '#00e676' : '#ff4d6d';
         stockEl.style.border     = ok
-            ? '1px solid rgba(0,230,118,.3)' : '1px solid rgba(255,77,109,.3)';
+            ? '1px solid rgba(0,230,118,.3)'
+            : '1px solid rgba(255,77,109,.3)';
     }
 
-    // Código interno
+    // ── Código interno ────────────────────────────────────────
     if (codWrap && codVal) {
         if (item.codigo) { codVal.textContent = item.codigo; codWrap.classList.remove('hidden'); }
-        else              { codWrap.classList.add('hidden'); }
+        else               codWrap.classList.add('hidden');
     }
 
-    // Campo dinámico: serie para seriados, cantidad numérica para misceláneos
-    if (esSeriado) {
+    // ── Campo dinámico: serie o cantidad ──────────────────────
+    if (esSer) {
         if (lblEl)   lblEl.innerHTML  = 'NÚMERO DE SERIE <span class="req">*</span>';
         if (badgeEl) { badgeEl.textContent = 'SERIADO'; badgeEl.className = 'tipo-badge tipo-seriado'; }
         if (identEl) {
@@ -3525,15 +3539,15 @@ function seleccionarArticuloSalida(item) {
             identEl.removeAttribute('max');
         }
     } else {
-        const maxStock = item.cantidad || 999;
-        if (lblEl)   lblEl.innerHTML  = `CANTIDAD A RETIRAR <span class="req">*</span> <span style="font-size:.72rem;color:var(--dim)">(máx ${maxStock} ${item.unidad||item.unidad_medida||'und'})</span>`;
+        const max = item.cantidad;
+        if (lblEl)   lblEl.innerHTML  = `CANTIDAD A RETIRAR <span class="req">*</span> <small style="font-weight:400;color:var(--dim)">(máx ${max.toLocaleString()} ${unidad})</small>`;
         if (badgeEl) { badgeEl.textContent = 'MISCELÁNEOS'; badgeEl.className = 'tipo-badge tipo-cantidad'; }
         if (identEl) {
             identEl.type        = 'number';
             identEl.placeholder = '1';
             identEl.value       = '1';
             identEl.min         = '1';
-            identEl.max         = String(maxStock);
+            identEl.max         = String(max);
         }
     }
     if (identEl) identEl.focus();
