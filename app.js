@@ -1,23 +1,8 @@
-// PROINTEL 2.0 — APP LIMPIO
-// Configuración Supabase
-const SUPABASE_URL = 'https://tqqijdztibhudqeyxgjn.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRxcWlqZHp0aWJodWRxZXl4Z2puIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Mjc5MjkxOTgsImV4cCI6MjA0MzUwNTE5OH0.vt1BkJ3RNJgGfZJKVwQVY56hqzn0dPr8yMQzAKGiCXw';
+// PROINTEL 2.0 — APP LIMPIO (usando supabaseClient global)
 
-// Variables globales
-let supabase = null;
+// VARIABLES GLOBALES
 let currentUser = null;
 let userProfile = null;
-
-// Inicializar
-window.addEventListener('DOMContentLoaded', function() {
-    // Crear cliente Supabase
-    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-    console.log('✅ Supabase inicializado');
-    
-    // Iniciar reloj
-    updateClock();
-    setInterval(updateClock, 1000);
-});
 
 // Actualizar reloj
 function updateClock() {
@@ -28,6 +13,12 @@ function updateClock() {
         clockElement.textContent = timeString;
     }
 }
+
+// Inicializar
+window.addEventListener('DOMContentLoaded', function() {
+    updateClock();
+    setInterval(updateClock, 1000);
+});
 
 // LOGIN
 async function handleLogin(event) {
@@ -44,7 +35,7 @@ async function handleLogin(event) {
 
     try {
         // Buscar usuario en BD
-        const { data, error } = await supabase
+        const { data, error } = await supabaseClient
             .from('usuarios')
             .select('id, usuario, clave, rol')
             .eq('usuario', username)
@@ -94,7 +85,7 @@ async function handleLogin(event) {
         document.getElementById('mainContent').style.display = 'flex';
         document.getElementById('dashboardSection').classList.add('active');
         
-        console.log(`✅ Login: ${data.nombre_completo} (${data.rol})`);
+        console.log(`✅ Login: ${data.usuario} (${data.rol})`);
 
     } catch (error) {
         console.error('Error login:', error);
@@ -146,7 +137,7 @@ async function handleCreateUser(event) {
     }
 
     try {
-        const { data, error } = await supabase
+        const { data, error } = await supabaseClient
             .from('usuarios')
             .insert({
                 usuario: username,
@@ -195,10 +186,10 @@ function navigateTo(section) {
 
 // CARGAR BODEGA
 async function loadBodega() {
-    if (!supabase || !currentUser) return;
+    if (!supabaseClient || !currentUser) return;
 
     try {
-        const { data, error } = await supabase
+        const { data, error } = await supabaseClient
             .from('bodega')
             .select(`
                 id,
