@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PROINTEL 2.0</title>
+    <title>PROINTEL 2.0 — Sistema Premium de Gestión</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         * {
@@ -12,350 +12,751 @@
             box-sizing: border-box;
         }
 
-        body {
-            background: #1a1a2e;
-            color: #ffffff;
-            font-family: Arial, sans-serif;
+        :root {
+            --primary-blue: #00d4ff;
+            --primary-blue-dark: #0099cc;
+            --bg-dark: #0a0e27;
+            --bg-secondary: #1a1f3a;
+            --glass-bg: rgba(26, 31, 58, 0.7);
+            --glass-border: rgba(0, 212, 255, 0.2);
+            --metal-gold: #d4af37;
+            --danger-red: #ff1744;
+            --danger-glow: #ff1744;
         }
 
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 50%, #0d1b2a 100%);
+            color: var(--primary-blue);
+            position: relative;
+            backdrop-filter: blur(10px);
+        }
+
+        /* ═══════════════════════════════════════════════════════════════ */
+        /* FONDO DATA CENTER CON PROFUNDIDAD */
+        /* ═══════════════════════════════════════════════════════════════ */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                radial-gradient(circle at 20% 50%, rgba(0, 212, 255, 0.03) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(0, 159, 204, 0.05) 0%, transparent 50%),
+                repeating-linear-gradient(90deg, 
+                    transparent 0%, 
+                    rgba(0, 212, 255, 0.02) 2%, 
+                    transparent 4%),
+                repeating-linear-gradient(0deg, 
+                    transparent 0%, 
+                    rgba(0, 212, 255, 0.01) 1%, 
+                    transparent 2%);
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        /* EFECTO DATA CENTER */
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                linear-gradient(to right, 
+                    rgba(0, 212, 255, 0.1) 0%, 
+                    transparent 10%, 
+                    transparent 90%, 
+                    rgba(0, 212, 255, 0.05) 100%);
+            z-index: 0;
+            pointer-events: none;
+            backdrop-filter: blur(2px);
+        }
+
+        #app {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* ═══════════════════════════════════════════════════════════════ */
+        /* HEADER GLASSMORPHISM */
+        /* ═══════════════════════════════════════════════════════════════ */
         header {
-            background: linear-gradient(135deg, #0f3460, #16213e);
-            padding: 1.5rem;
-            border-bottom: 3px solid #e94560;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--glass-border);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+            padding: 1.5rem 2.5rem;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            position: relative;
+            z-index: 100;
         }
 
-        .logo {
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .logo-icon {
+            font-size: 2.5rem;
+            filter: drop-shadow(0 0 20px rgba(0, 212, 255, 0.5));
+        }
+
+        .logo-text {
             font-size: 1.8rem;
-            font-weight: bold;
-            color: #e94560;
+            font-weight: 800;
+            color: var(--primary-blue);
+            letter-spacing: 2px;
+            text-shadow: 0 0 20px rgba(0, 212, 255, 0.4);
         }
 
         .header-right {
             display: flex;
-            gap: 1.5rem;
+            gap: 2rem;
             align-items: center;
-            font-size: 0.9rem;
         }
 
-        .section {
-            display: none;
-            padding: 2rem;
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-
-        .section.active {
-            display: block;
-        }
-
-        .login-card {
-            background: #16213e;
-            border: 2px solid #e94560;
-            border-radius: 12px;
-            padding: 3rem;
-            max-width: 500px;
-            margin: 4rem auto;
-            text-align: center;
-        }
-
-        .login-card h2 {
-            color: #e94560;
-            margin-bottom: 1rem;
-            font-size: 2rem;
-        }
-
-        .login-card p {
-            color: #aaa;
-            margin-bottom: 2rem;
-        }
-
-        .btn {
-            padding: 1rem 2rem;
-            background: #e94560;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            font-size: 1rem;
-            cursor: pointer;
+        #clock {
+            font-family: 'Courier New', monospace;
+            font-size: 1.2rem;
+            color: var(--primary-blue);
             font-weight: bold;
-            width: 100%;
-            margin-top: 1rem;
-            transition: all 0.3s;
+            letter-spacing: 1px;
+            text-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
         }
 
-        .btn:hover {
-            background: #d63447;
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 0.8rem;
+            padding: 0.8rem 1.5rem;
+            background: rgba(0, 212, 255, 0.05);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            backdrop-filter: blur(10px);
+        }
+
+        .user-avatar {
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--primary-blue), var(--primary-blue-dark));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: white;
+            box-shadow: 0 0 20px rgba(0, 212, 255, 0.4);
+        }
+
+        .user-details {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .user-name {
+            font-size: 0.9rem;
+            color: var(--primary-blue);
+            font-weight: 600;
+        }
+
+        .user-role {
+            font-size: 0.7rem;
+            color: rgba(0, 212, 255, 0.6);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-logout {
+            padding: 0.7rem 1.2rem;
+            background: rgba(255, 23, 68, 0.1);
+            border: 1px solid rgba(255, 23, 68, 0.3);
+            color: #ff1744;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            font-size: 0.85rem;
+        }
+
+        .btn-logout:hover {
+            background: rgba(255, 23, 68, 0.2);
+            box-shadow: 0 0 20px rgba(255, 23, 68, 0.4);
             transform: translateY(-2px);
         }
 
-        .btn-secondary {
-            background: #34495e;
+        /* ═══════════════════════════════════════════════════════════════ */
+        /* CONTENIDO PRINCIPAL */
+        /* ═══════════════════════════════════════════════════════════════ */
+        .main-content {
+            flex: 1;
+            padding: 3rem 2.5rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
         }
 
-        .btn-secondary:hover {
-            background: #2c3e50;
-        }
-
-        .dashboard {
-            text-align: center;
-        }
-
-        .dashboard h2 {
-            color: #e94560;
-            margin-bottom: 2rem;
-        }
-
-        .menu-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        .dashboard-header {
+            display: flex;
+            align-items: center;
             gap: 1.5rem;
+            margin-bottom: 3rem;
         }
 
-        .menu-item {
-            background: #16213e;
-            border: 2px solid #333;
-            border-radius: 10px;
-            padding: 2rem 1rem;
-            cursor: pointer;
-            transition: all 0.3s;
+        .dashboard-icon {
+            font-size: 3rem;
+            filter: drop-shadow(0 0 20px rgba(0, 212, 255, 0.5));
         }
 
-        .menu-item:hover {
-            border-color: #e94560;
-            box-shadow: 0 6px 20px rgba(233, 69, 96, 0.2);
-            transform: translateY(-4px);
+        .dashboard-title {
+            display: flex;
+            flex-direction: column;
         }
 
-        .menu-item .icon {
+        .dashboard-title h1 {
             font-size: 2.5rem;
-            margin-bottom: 0.5rem;
-        }
-
-        .menu-item .title {
-            font-weight: bold;
-            color: #e94560;
+            color: var(--primary-blue);
+            font-weight: 800;
+            letter-spacing: 1px;
             margin-bottom: 0.3rem;
+            text-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
         }
 
-        .menu-item .desc {
-            font-size: 0.85rem;
-            color: #aaa;
+        .dashboard-title p {
+            font-size: 1.1rem;
+            color: rgba(0, 212, 255, 0.7);
         }
 
-        .bodega-section {
-            background: #16213e;
-            border: 1px solid #333;
-            border-radius: 8px;
-            padding: 1.5rem;
+        /* ═══════════════════════════════════════════════════════════════ */
+        /* GRID DE TARJETAS */
+        /* ═══════════════════════════════════════════════════════════════ */
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+
+        .card {
+            position: relative;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            padding: 2.5rem 2rem;
+            cursor: pointer;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow: hidden;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -50%;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle, rgba(0, 212, 255, 0.1) 0%, transparent 70%);
+            opacity: 0;
+            transition: opacity 0.4s ease;
+            z-index: -1;
+        }
+
+        .card:hover::before {
+            opacity: 1;
+        }
+
+        .card:hover {
+            transform: translateY(-15px) scale(1.02);
+            border-color: rgba(0, 212, 255, 0.5);
+            box-shadow: 0 20px 60px 0 rgba(0, 212, 255, 0.3);
+        }
+
+        .card-icon {
+            font-size: 3.5rem;
+            margin-bottom: 1.5rem;
+            filter: drop-shadow(0 0 15px rgba(0, 212, 255, 0.4));
+            transition: all 0.3s ease;
+        }
+
+        .card:hover .card-icon {
+            transform: scale(1.1) rotateY(10deg);
+            filter: drop-shadow(0 0 25px rgba(0, 212, 255, 0.6));
+        }
+
+        .card-title {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: var(--primary-blue);
+            margin-bottom: 0.8rem;
+            letter-spacing: 0.5px;
+        }
+
+        .card-description {
+            font-size: 0.95rem;
+            color: rgba(0, 212, 255, 0.6);
+            line-height: 1.5;
+        }
+
+        /* EFECTO METAL PARA ÓRDENES TÉCNICAS */
+        .card.metal {
+            background: linear-gradient(135deg, 
+                rgba(212, 175, 55, 0.05) 0%, 
+                rgba(26, 31, 58, 0.7) 100%);
+            border-color: rgba(212, 175, 55, 0.3);
+        }
+
+        .card.metal:hover {
+            border-color: rgba(212, 175, 55, 0.6);
+            box-shadow: 0 20px 60px rgba(212, 175, 55, 0.2);
+        }
+
+        /* EFECTO PELIGRO PARA LOGOUT */
+        .card.danger {
+            border-color: rgba(255, 23, 68, 0.3);
+            position: relative;
+        }
+
+        .card.danger::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            border-radius: 20px;
+            box-shadow: inset 0 0 30px rgba(255, 23, 68, 0.1);
+            pointer-events: none;
+        }
+
+        .card.danger:hover {
+            border-color: rgba(255, 23, 68, 0.6);
+            box-shadow: 0 0 40px rgba(255, 23, 68, 0.4);
+        }
+
+        /* ═══════════════════════════════════════════════════════════════ */
+        /* LOGIN MODAL */
+        /* ═══════════════════════════════════════════════════════════════ */
+        .login-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(10, 14, 39, 0.95);
+            backdrop-filter: blur(10px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .login-container {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 30px;
+            padding: 3rem;
+            max-width: 450px;
+            width: 90%;
+            box-shadow: 0 20px 60px rgba(0, 212, 255, 0.2);
+        }
+
+        .login-title {
+            font-size: 2rem;
+            color: var(--primary-blue);
+            text-align: center;
+            margin-bottom: 0.5rem;
+            text-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
+        }
+
+        .login-subtitle {
+            font-size: 0.95rem;
+            color: rgba(0, 212, 255, 0.6);
+            text-align: center;
             margin-bottom: 2rem;
+        }
+
+        .profile-selector {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .profile-btn {
+            padding: 1.2rem;
+            background: rgba(0, 212, 255, 0.05);
+            border: 1.5px solid rgba(0, 212, 255, 0.2);
+            border-radius: 12px;
+            color: var(--primary-blue);
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            text-align: left;
+        }
+
+        .profile-btn:hover {
+            background: rgba(0, 212, 255, 0.1);
+            border-color: rgba(0, 212, 255, 0.5);
+            box-shadow: 0 0 20px rgba(0, 212, 255, 0.2);
+            transform: translateX(5px);
+        }
+
+        .profile-icon {
+            margin-right: 1rem;
+            font-size: 1.3rem;
+        }
+
+        /* ═══════════════════════════════════════════════════════════════ */
+        /* SECCIONES */
+        /* ═══════════════════════════════════════════════════════════════ */
+        .section {
+            display: none;
+        }
+
+        .section.active {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        /* ═══════════════════════════════════════════════════════════════ */
+        /* BODEGA */
+        /* ═══════════════════════════════════════════════════════════════ */
+        .bodega-section {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
         }
 
         .bodega-section h3 {
-            color: #e94560;
-            margin-bottom: 1rem;
-            border-bottom: 1px solid #e94560;
-            padding-bottom: 0.5rem;
+            color: var(--primary-blue);
+            font-size: 1.3rem;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--glass-border);
         }
 
         table {
             width: 100%;
             border-collapse: collapse;
-            background: #0f3460;
-            border-radius: 6px;
-            overflow: hidden;
+            color: var(--primary-blue);
         }
 
         th {
-            background: linear-gradient(135deg, #0f3460, #16213e);
+            background: rgba(0, 212, 255, 0.05);
             padding: 1rem;
             text-align: left;
-            color: #e94560;
-            font-weight: bold;
-            text-transform: uppercase;
-            font-size: 0.85rem;
+            font-weight: 700;
+            border-bottom: 1px solid var(--glass-border);
+            color: var(--primary-blue);
         }
 
         td {
             padding: 0.9rem 1rem;
-            border-bottom: 1px solid rgba(233, 69, 96, 0.1);
+            border-bottom: 1px solid rgba(0, 212, 255, 0.1);
         }
 
         tbody tr:hover {
-            background: rgba(233, 69, 96, 0.05);
+            background: rgba(0, 212, 255, 0.05);
         }
 
         code {
-            background: rgba(0, 0, 0, 0.3);
-            padding: 0.2rem 0.4rem;
-            border-radius: 3px;
-            color: #4db8ff;
-        }
-
-        .empty-message {
-            text-align: center;
-            color: #666;
-            padding: 2rem;
+            background: rgba(0, 212, 255, 0.1);
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            color: var(--primary-blue);
         }
 
         .btn-back {
-            background: #34495e;
-            color: white;
-            padding: 0.6rem 1.2rem;
-            border: none;
-            border-radius: 6px;
+            padding: 0.8rem 1.5rem;
+            background: rgba(0, 212, 255, 0.1);
+            border: 1px solid var(--glass-border);
+            color: var(--primary-blue);
+            border-radius: 10px;
             cursor: pointer;
-            margin-bottom: 1rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            margin-bottom: 2rem;
+            align-self: flex-start;
         }
 
         .btn-back:hover {
-            background: #2c3e50;
+            background: rgba(0, 212, 255, 0.2);
+            box-shadow: 0 0 20px rgba(0, 212, 255, 0.2);
+            transform: translateX(-5px);
         }
 
-        .header-buttons {
-            display: flex;
-            gap: 0.5rem;
-        }
+        /* ═══════════════════════════════════════════════════════════════ */
+        /* RESPONSIVE */
+        /* ═══════════════════════════════════════════════════════════════ */
+        @media (max-width: 1024px) {
+            .cards-grid {
+                grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+                gap: 1.5rem;
+            }
 
-        .btn-logout {
-            background: #c62828;
-            padding: 0.5rem 1rem;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            display: none;
-        }
-
-        .btn-logout:hover {
-            background: #b91c1c;
+            .card {
+                padding: 2rem 1.5rem;
+            }
         }
 
         @media (max-width: 768px) {
             header {
                 flex-direction: column;
                 gap: 1rem;
+                padding: 1rem;
             }
 
-            .login-card {
-                padding: 2rem 1rem;
-                margin: 2rem 1rem;
+            .header-right {
+                width: 100%;
+                justify-content: space-between;
             }
 
-            .menu-grid {
+            .main-content {
+                padding: 1.5rem 1rem;
+            }
+
+            .dashboard-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .dashboard-title h1 {
+                font-size: 1.8rem;
+            }
+
+            .cards-grid {
                 grid-template-columns: 1fr;
             }
 
-            table {
-                font-size: 0.9rem;
+            .login-container {
+                padding: 2rem 1.5rem;
             }
+        }
 
-            th, td {
-                padding: 0.6rem;
-            }
+        /* SCROLLBAR ESTILIZADO */
+        ::-webkit-scrollbar {
+            width: 10px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 212, 255, 0.05);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(0, 212, 255, 0.3);
+            border-radius: 5px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(0, 212, 255, 0.5);
         }
     </style>
 </head>
 <body>
-    <header>
-        <div class="logo">📦 PROINTEL 2.0</div>
-        <div class="header-right">
-            <span id="clock">00:00:00</span>
-            <span id="user">Invitado</span>
-            <div class="header-buttons">
-                <button class="btn-logout" id="logoutBtn" onclick="logout()">🚪 Salir</button>
+    <div id="app">
+        <!-- LOGIN MODAL -->
+        <div id="loginModal" class="login-modal">
+            <div class="login-container">
+                <div style="font-size: 3rem; text-align: center; margin-bottom: 1rem;">📦</div>
+                <h2 class="login-title">PROINTEL 2.0</h2>
+                <p class="login-subtitle">Sistema Premium de Gestión de Inventario</p>
+                
+                <div class="profile-selector">
+                    <button class="profile-btn" onclick="loginUser('mgvillegas', 'superuser')">
+                        <span class="profile-icon">👑</span>
+                        <strong>Super Usuario</strong><br>
+                        <small style="color: rgba(0, 212, 255, 0.5);">mgvillegas - Control total</small>
+                    </button>
+                    <button class="profile-btn" onclick="loginUser('admin', 'admin')">
+                        <span class="profile-icon">⚙️</span>
+                        <strong>Administrador</strong><br>
+                        <small style="color: rgba(0, 212, 255, 0.5);">Gestión completa de usuarios</small>
+                    </button>
+                    <button class="profile-btn" onclick="loginUser('Ovidio', 'technician')">
+                        <span class="profile-icon">👨‍🔧</span>
+                        <strong>Técnico</strong><br>
+                        <small style="color: rgba(0, 212, 255, 0.5);">Ovidio - Ver materiales</small>
+                    </button>
+                </div>
+
+                <p style="font-size: 0.8rem; color: rgba(0, 212, 255, 0.4); text-align: center;">
+                    Sistema seguro con perfiles especializados
+                </p>
             </div>
         </div>
-    </header>
 
-    <!-- LOGIN -->
-    <div id="loginSection" class="section active">
-        <div class="login-card">
-            <h2>🔐 PROINTEL 2.0</h2>
-            <p>Sistema de Gestión de Inventario</p>
-            <button class="btn" onclick="login()">👤 Entrar como Técnico</button>
-            <p style="margin-top: 1.5rem; font-size: 0.8rem; color: #666;">
-                Versión 2.0 | Base de datos sincronizada
-            </p>
-        </div>
-    </div>
+        <!-- HEADER -->
+        <header>
+            <div class="header-left">
+                <div class="logo-icon">📦</div>
+                <div class="logo-text">PROINTEL 2.0</div>
+            </div>
+            <div class="header-right">
+                <div id="clock">00:00:00</div>
+                <div class="user-info">
+                    <div class="user-avatar" id="userAvatar">O</div>
+                    <div class="user-details">
+                        <div class="user-name" id="userName">Ovidio</div>
+                        <div class="user-role" id="userRole">Técnico</div>
+                    </div>
+                </div>
+                <button class="btn-logout" onclick="logout()">🚪 Salir</button>
+            </div>
+        </header>
 
-    <!-- DASHBOARD -->
-    <div id="dashboardSection" class="section">
-        <div class="dashboard">
-            <h2>📊 Dashboard</h2>
-            <p style="color: #aaa; margin-bottom: 2rem;">Bienvenido, <span id="dashboardUser">Usuario</span></p>
-
-            <div class="menu-grid">
-                <div class="menu-item" onclick="loadBodega()">
-                    <div class="icon">📦</div>
-                    <div class="title">MI BODEGA</div>
-                    <div class="desc">Ver inventario asignado</div>
+        <!-- CONTENIDO PRINCIPAL -->
+        <div class="main-content">
+            <!-- DASHBOARD SECTION -->
+            <div id="dashboardSection" class="section active">
+                <div class="dashboard-header">
+                    <div class="dashboard-icon">📊</div>
+                    <div class="dashboard-title">
+                        <h1>Dashboard</h1>
+                        <p id="greeting">Bienvenido, Ovidio</p>
+                    </div>
                 </div>
 
-                <div class="menu-item" onclick="alert('Próximamente')">
-                    <div class="icon">📋</div>
-                    <div class="title">ÓRDENES TÉCNICAS</div>
-                    <div class="desc">Gestionar mis OTs</div>
+                <div class="cards-grid">
+                    <!-- MI BODEGA -->
+                    <div class="card" onclick="navigateTo('bodega')">
+                        <div class="card-icon">📦</div>
+                        <div class="card-title">MI BODEGA</div>
+                        <div class="card-description">Visualiza y gestiona tu inventario de materiales seriados y misceláneo</div>
+                    </div>
+
+                    <!-- ÓRDENES TÉCNICAS (Solo para admin y super) -->
+                    <div class="card metal" onclick="navigateTo('ot')" id="cardOT" style="display: none;">
+                        <div class="card-icon">📋</div>
+                        <div class="card-title">ÓRDENES TÉCNICAS</div>
+                        <div class="card-description">Gestiona órdenes de trabajo y asignaciones técnicas con acabado de metal</div>
+                    </div>
+
+                    <!-- REPORTES (Solo para admin y super) -->
+                    <div class="card" onclick="navigateTo('reportes')" id="cardReportes" style="display: none;">
+                        <div class="card-icon">📊</div>
+                        <div class="card-title">REPORTES</div>
+                        <div class="card-description">Analiza estadísticas y genera informes detallados del inventario</div>
+                    </div>
+
+                    <!-- USUARIOS (Solo para super) -->
+                    <div class="card metal" onclick="navigateTo('usuarios')" id="cardUsuarios" style="display: none;">
+                        <div class="card-icon">👥</div>
+                        <div class="card-title">USUARIOS</div>
+                        <div class="card-description">Administra perfiles, roles y permisos del sistema</div>
+                    </div>
+
+                    <!-- CERRAR SESIÓN -->
+                    <div class="card danger" onclick="logout()">
+                        <div class="card-icon">🚪</div>
+                        <div class="card-title">CERRAR SESIÓN</div>
+                        <div class="card-description">Cierra tu sesión de forma segura y vuelve a la pantalla de login</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- BODEGA SECTION -->
+            <div id="bodegaSection" class="section">
+                <button class="btn-back" onclick="navigateTo('dashboard')">← Volver al Dashboard</button>
+                <h2 style="color: var(--primary-blue); margin-bottom: 2rem;">📦 Mi Inventario Asignado</h2>
+
+                <div class="bodega-section">
+                    <h3>⚙️ Equipos Seriados</h3>
+                    <table id="tablaSeriados">
+                        <thead>
+                            <tr>
+                                <th>Nombre</th>
+                                <th>Código</th>
+                                <th>Serie</th>
+                                <th>Cantidad</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td colspan="4" style="text-align: center; padding: 2rem;">Cargando datos...</td></tr>
+                        </tbody>
+                    </table>
                 </div>
 
-                <div class="menu-item" onclick="alert('Próximamente')">
-                    <div class="icon">📊</div>
-                    <div class="title">REPORTES</div>
-                    <div class="desc">Historial de salidas</div>
+                <div class="bodega-section">
+                    <h3>📦 Material Misceláneo</h3>
+                    <table id="tablaMisc">
+                        <thead>
+                            <tr>
+                                <th>Nombre</th>
+                                <th>Código</th>
+                                <th>Cantidad</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td colspan="3" style="text-align: center; padding: 2rem;">Cargando datos...</td></tr>
+                        </tbody>
+                    </table>
                 </div>
+            </div>
 
-                <div class="menu-item" onclick="logout()" style="border-color: #c62828;">
-                    <div class="icon">🚪</div>
-                    <div class="title">CERRAR SESIÓN</div>
-                    <div class="desc">Salir del sistema</div>
+            <!-- ÓRDENES TÉCNICAS SECTION -->
+            <div id="otSection" class="section">
+                <button class="btn-back" onclick="navigateTo('dashboard')">← Volver al Dashboard</button>
+                <h2 style="color: var(--primary-blue); margin-bottom: 2rem;">📋 Órdenes Técnicas</h2>
+                <div class="bodega-section">
+                    <p style="text-align: center; color: rgba(0, 212, 255, 0.6); padding: 2rem;">
+                        Módulo de Órdenes Técnicas — Próximamente
+                    </p>
+                </div>
+            </div>
+
+            <!-- REPORTES SECTION -->
+            <div id="reportesSection" class="section">
+                <button class="btn-back" onclick="navigateTo('dashboard')">← Volver al Dashboard</button>
+                <h2 style="color: var(--primary-blue); margin-bottom: 2rem;">📊 Reportes</h2>
+                <div class="bodega-section">
+                    <p style="text-align: center; color: rgba(0, 212, 255, 0.6); padding: 2rem;">
+                        Módulo de Reportes — Próximamente
+                    </p>
+                </div>
+            </div>
+
+            <!-- USUARIOS SECTION -->
+            <div id="usuariosSection" class="section">
+                <button class="btn-back" onclick="navigateTo('dashboard')">← Volver al Dashboard</button>
+                <h2 style="color: var(--primary-blue); margin-bottom: 2rem;">👥 Gestión de Usuarios</h2>
+                <div class="bodega-section">
+                    <p style="text-align: center; color: rgba(0, 212, 255, 0.6); padding: 2rem;">
+                        Módulo de Usuarios — Próximamente
+                    </p>
                 </div>
             </div>
         </div>
-    </div>
-
-    <!-- BODEGA -->
-    <div id="bodegaSection" class="section">
-        <button class="btn-back" onclick="showDashboard()">← Volver al Dashboard</button>
-        <h2 style="color: #e94560; margin-bottom: 2rem;">📦 Mi Inventario Asignado</h2>
-
-        <div class="bodega-section">
-            <h3>⚙️ Equipos Seriados</h3>
-            <table id="tablaSeriados">
-                <thead>
-                    <tr>
-                        <th>Nombre</th>
-                        <th>Código</th>
-                        <th>Serie</th>
-                        <th>Cantidad</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr><td colspan="4" class="empty-message">Cargando...</td></tr>
-                </tbody>
-            </table>
-        </div>
-
-        <div class="bodega-section">
-            <h3>📦 Material Misceláneo</h3>
-            <table id="tablaMisc">
-                <thead>
-                    <tr>
-                        <th>Nombre</th>
-                        <th>Código</th>
-                        <th>Cantidad</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr><td colspan="3" class="empty-message">Cargando...</td></tr>
-                </tbody>
-            </table>
-        </div>
-
-        <button class="btn-back" onclick="showDashboard()">← Volver</button>
-        <button class="btn" onclick="loadBodega()">🔄 Actualizar</button>
     </div>
 
     <script>
@@ -363,15 +764,14 @@
         const SUPABASE_URL = 'https://tqqijdztibhudqeyxgjn.supabase.co';
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRxcWlqZHp0aWJodWRxZXl4Z2puIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Mjc5MjkxOTgsImV4cCI6MjA0MzUwNTE5OH0.vt1BkJ3RNJgGfZJKVwQVY56hqzn0dPr8yMQzAKGiCXw';
 
-        // VARIABLES GLOBALES
-        let supab = null;
+        let supabase = null;
         let currentUser = null;
-        let inventario = [];
+        let userRole = null;
 
         // INICIALIZAR
         window.addEventListener('DOMContentLoaded', () => {
             try {
-                supab = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+                supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
                 console.log('✅ Supabase conectado');
             } catch (e) {
                 console.error('❌ Error Supabase:', e);
@@ -380,9 +780,10 @@
             // RESTAURAR SESIÓN
             const saved = localStorage.getItem('user');
             if (saved) {
-                currentUser = JSON.parse(saved);
+                const userData = JSON.parse(saved);
+                currentUser = userData.nombre;
+                userRole = userData.role;
                 showDashboard();
-                startClock();
             }
 
             startClock();
@@ -390,76 +791,90 @@
 
         // RELOJ
         function startClock() {
-            setInterval(() => {
+            const updateClock = () => {
                 const now = new Date();
                 document.getElementById('clock').textContent = now.toLocaleTimeString('es-ES');
-            }, 1000);
-        }
-
-        // FUNCIONES DE NAVEGACIÓN
-        function hideAll() {
-            document.getElementById('loginSection').classList.remove('active');
-            document.getElementById('dashboardSection').classList.remove('active');
-            document.getElementById('bodegaSection').classList.remove('active');
-        }
-
-        function showLogin() {
-            hideAll();
-            document.getElementById('loginSection').classList.add('active');
-            document.getElementById('user').textContent = 'Invitado';
-            document.getElementById('logoutBtn').style.display = 'none';
-        }
-
-        function showDashboard() {
-            hideAll();
-            document.getElementById('dashboardSection').classList.add('active');
-            if (currentUser) {
-                document.getElementById('dashboardUser').textContent = currentUser.nombre;
-                document.getElementById('user').textContent = currentUser.nombre;
-                document.getElementById('logoutBtn').style.display = 'block';
-            }
-        }
-
-        function showBodega() {
-            hideAll();
-            document.getElementById('bodegaSection').classList.add('active');
+            };
+            updateClock();
+            setInterval(updateClock, 1000);
         }
 
         // LOGIN
-        function login() {
-            currentUser = {
-                nombre: 'Ovidio',
-                id: 'tech_001'
+        function loginUser(username, role) {
+            currentUser = username;
+            userRole = role;
+
+            localStorage.setItem('user', JSON.stringify({ nombre: username, role: role }));
+
+            document.getElementById('userName').textContent = username;
+            document.getElementById('userAvatar').textContent = username.charAt(0).toUpperCase();
+            document.getElementById('greeting').textContent = `Bienvenido, ${username}`;
+
+            const roleNames = {
+                superuser: 'Super Usuario',
+                admin: 'Administrador',
+                technician: 'Técnico'
             };
-            localStorage.setItem('user', JSON.stringify(currentUser));
-            console.log('✅ Login:', currentUser.nombre);
+            document.getElementById('userRole').textContent = roleNames[role] || 'Usuario';
+
+            document.getElementById('loginModal').style.display = 'none';
+
+            // Mostrar/Ocultar opciones según rol
+            document.getElementById('cardOT').style.display = (role === 'superuser' || role === 'admin') ? 'block' : 'none';
+            document.getElementById('cardReportes').style.display = (role === 'superuser' || role === 'admin') ? 'block' : 'none';
+            document.getElementById('cardUsuarios').style.display = (role === 'superuser') ? 'block' : 'none';
+
             showDashboard();
+            console.log(`✅ Login: ${username} (${role})`);
         }
 
         // LOGOUT
         function logout() {
             localStorage.removeItem('user');
             currentUser = null;
-            console.log('🚪 Logout');
-            showLogin();
+            userRole = null;
+            document.getElementById('loginModal').style.display = 'flex';
+            hideAllSections();
+        }
+
+        // NAVEGACIÓN
+        function hideAllSections() {
+            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+        }
+
+        function showDashboard() {
+            hideAllSections();
+            document.getElementById('dashboardSection').classList.add('active');
+        }
+
+        function navigateTo(section) {
+            hideAllSections();
+            switch(section) {
+                case 'dashboard':
+                    showDashboard();
+                    break;
+                case 'bodega':
+                    document.getElementById('bodegaSection').classList.add('active');
+                    loadBodega();
+                    break;
+                case 'ot':
+                    document.getElementById('otSection').classList.add('active');
+                    break;
+                case 'reportes':
+                    document.getElementById('reportesSection').classList.add('active');
+                    break;
+                case 'usuarios':
+                    document.getElementById('usuariosSection').classList.add('active');
+                    break;
+            }
         }
 
         // BODEGA
         async function loadBodega() {
-            if (!currentUser) {
-                alert('⚠️ No hay sesión activa');
-                return;
-            }
-
-            if (!supab) {
-                alert('⚠️ Supabase no disponible');
-                return;
-            }
+            if (!supabase || !currentUser) return;
 
             try {
-                console.log(`📦 Cargando bodega para: ${currentUser.nombre}`);
-                
-                const { data, error } = await supab
+                const { data, error } = await supabase
                     .from('bodega')
                     .select(`
                         id,
@@ -472,18 +887,13 @@
                             codigo
                         )
                     `)
-                    .eq('responsable', currentUser.nombre);
+                    .eq('responsable', currentUser);
 
                 if (error) throw error;
 
-                console.log(`✅ ${data.length} artículos encontrados`);
-                inventario = data;
-                renderBodega(data);
-                showBodega();
-
+                renderBodega(data || []);
             } catch (error) {
-                console.error('❌ Error:', error.message);
-                alert(`Error: ${error.message}`);
+                console.error('❌ Error cargando bodega:', error.message);
             }
         }
 
@@ -505,7 +915,7 @@
                     `;
                 });
             } else {
-                htmlSeriados = '<tr><td colspan="4" class="empty-message">Sin equipos seriados</td></tr>';
+                htmlSeriados = '<tr><td colspan="4" style="text-align: center;">Sin equipos seriados asignados</td></tr>';
             }
             document.querySelector('#tablaSeriados tbody').innerHTML = htmlSeriados;
 
@@ -522,14 +932,12 @@
                     `;
                 });
             } else {
-                htmlMisc = '<tr><td colspan="3" class="empty-message">Sin material misceláneo</td></tr>';
+                htmlMisc = '<tr><td colspan="3" style="text-align: center;">Sin material misceláneo asignado</td></tr>';
             }
             document.querySelector('#tablaMisc tbody').innerHTML = htmlMisc;
-
-            console.log(`✅ Rendered: ${seriados.length} seriados + ${misc.length} misc`);
         }
 
-        console.log('✅ PROINTEL 2.0 cargado');
+        console.log('✅ PROINTEL 2.0 Premium UI cargado');
     </script>
 </body>
 </html>
