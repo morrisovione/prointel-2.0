@@ -4862,23 +4862,25 @@ async function cargarMisArticulos() {
         </div>
         <div class="mi-bodega-tabs">
             <button class="mb-tab mb-tab-active" id="tab-stock"
-                onclick="switchMiBodegaTab('stock')">📦 Stock Actual</button>
+                onclick="switchMiBodegaTab('stock')">📋 Mi Inventario</button>
             <button class="mb-tab" id="tab-historial"
-                onclick="switchMiBodegaTab('historial')">📋 Historial de Entregas</button>
+                onclick="switchMiBodegaTab('historial')">📦 Historial de Entregas</button>
         </div>
+
+        <!-- Panel: Mi Inventario -->
         <div id="panel-stock" class="mb-panel">
             <div class="inv-toolbar">
                 <div class="search-bar" style="flex:1">
                     <input type="text" id="mis-search"
-                        placeholder="🔍  Buscar en mi stock…"
+                        placeholder="🔍  Buscar en mi inventario…"
                         oninput="filtrarTabla('mis-search','tabla-mis-art')" />
                 </div>
             </div>
             <div class="table-wrap">
                 <table class="data-table" id="tabla-mis-art">
                     <thead><tr>
-                        <th>#</th><th>ARTÍCULO</th><th>SERIE</th>
-                        <th>STOCK</th><th>ESTADO</th><th>FECHA</th>
+                        <th>#</th><th>ARTÍCULO</th><th>TIPO</th>
+                        <th>SERIE</th><th>STOCK</th><th>ESTADO</th>
                     </tr></thead>
                     <tbody id="mis-tbody">
                         <tr><td colspan="6" class="empty-row">⏳ Cargando…</td></tr>
@@ -4887,12 +4889,14 @@ async function cargarMisArticulos() {
             </div>
             <p class="table-count" id="mis-count"></p>
         </div>
+
+        <!-- Panel: Historial de Entregas -->
         <div id="panel-historial" class="mb-panel hidden">
             <div class="table-wrap">
                 <table class="data-table" id="tabla-historial">
                     <thead><tr>
                         <th>#</th><th>CORRELATIVO</th><th>ARTÍCULO</th>
-                        <th>CANTIDAD</th><th>DESPACHADO POR</th><th>FECHA</th><th>VER</th>
+                        <th>CANTIDAD</th><th>DESPACHADO POR</th><th>FECHA</th><th>FACTURA</th>
                     </tr></thead>
                     <tbody id="hist-tbody">
                         <tr><td colspan="7" class="empty-row">⏳ Cargando…</td></tr>
@@ -4912,192 +4916,179 @@ async function cargarMisArticulos() {
         const uid    = currentUser.id;
         const nombre = currentUser.nombre_completo || currentUser.usuario || '';
 
-        // ── Stock actual: buscar en BODEGA ─────────────────────────────────
-        // Misceláneos asignados al técnico
-        const condMisc = [];
-        if (uid)    condMisc.push(`asignado_a.eq.${uid}`);
-        if (nombre) condMisc.push(`responsable.eq.${nombre}`);
+        // ── Todo el stock del técnico en una sola consulta ────────────────
+        const condiciones = [`asignado_a.eq.${uid}`];
+        if (nombre) condiciones.push(`responsable.eq.${nombre}`);
 
-        // Traer TODO el stock del técnico en una sola consulta
-        const { data: todoBodegaMis } = condMisc.length
-            ? await window.supabase
-                .from('bodega')
-                .select('id, nombre, articulo, codigo, tipo_material, unidad, cantidad, estado, serie, fecha_ingreso')
-                .or(condMisc.join(','))
-                .not('estado', 'in', '("vendido","instalado","agotado")')
-            : { data: [] };
+        const { data: todoBodega, error: errBodega } = await window.supabase
+            .from('bodega')
+            .select('id, nombre, articulo, codigo, tipo_material, unidad, cantidad, estado, serie, fecha_ingreso')
+            .or(condiciones.join(','))
+            .not('estado', 'in', '("vendido","instalado","agotado")');
 
-        const todoBodegaMisArr = todoBodegaMis || [];
-        // Separar por tipo — compatible con valores null/vacío
-        const miscBodega  = todoBodegaMisArr.filter(b => {
-            const t = (b.tipo_material || '').toLowerCase();
-            return t === 'miscelaneo' || t === 'misceláneos' || t === 'misceláneo' ||
-                   (!t && !b.serie);
-        });
-        const serBodega   = todoBodegaMisArr.filter(b => {
-            const t = (b.tipo_material || '').toLowerCase();
-            return t === 'seriado' || b.serie;
-        });
+        if (errBodega) throw errBodega;
 
-        // También buscar en tabla series (si existe)
-        const { data: seriesData } = await window.supabase
-            .from('series')
-            .select('id, numero_serie, estado, articulos(nombre, codigo)')
-            .eq('asignado_a', uid)
-            .eq('estado', 'ENTREGADO');
+        const todos = todoBodega || [];
 
-        // ── Historial: registros_salida donde técnico es destinatario ──────
+        // Separar misc / seriado con detección flexible
+        const esMiscFn = b => {
+            const t = (b.tipo_material || '').toLowerCase().trim();
+            return t === 'miscelaneo' || t === 'misceláneos' || t === 'misceláneo'
+                || (!t && !b.serie && (b.cantidad || 0) > 0);
+        };
+        const misc     = todos.filter(b => esMiscFn(b));
+        const seriados = todos.filter(b => !esMiscFn(b));
+
+        // ── Historial desde registros_salida ──────────────────────────────
         const { data: histRaw } = await window.supabase
             .from('registros_salida')
-            .select('id, correlativo, articulo_id, tecnico_id, cantidad, fecha, firma, nombre_articulo')
+            .select('id, correlativo, articulo_id, cantidad, fecha, nombre_articulo, despachado_por')
             .eq('tecnico_id', uid)
             .order('correlativo', { ascending: false })
             .limit(50);
 
-        // Enriquecer historial con nombres de artículos
-        const histArtIds = [...new Set((histRaw||[]).map(h => h.articulo_id).filter(Boolean))];
-        let artMapHist = {};
-        if (histArtIds.length) {
+        // Enriquecer historial con nombre de artículo desde tabla articulos
+        const artIds = [...new Set((histRaw||[]).map(h => h.articulo_id).filter(Boolean))];
+        let artMap = {};
+        if (artIds.length) {
             const { data: arts } = await window.supabase
                 .from('articulos')
                 .select('id, nombre, codigo, unidad_medida')
-                .in('id', histArtIds);
-            (arts||[]).forEach(a => { artMapHist[a.id] = a; });
+                .in('id', artIds);
+            (arts||[]).forEach(a => { artMap[a.id] = a; });
         }
-
-        // Enriquecer historial con nombres de bodega (si articulo_id es null)
-        // Buscar por correlativo en bodega no es posible, usar nombre del registro
-        const hist = (histRaw || []).map(h => ({
-            ...h,
-            art: artMapHist[h.articulo_id] || null,
-        }));
+        const hist = (histRaw||[]).map(h => ({ ...h, art: artMap[h.articulo_id] || null }));
 
         // ── Stats ──────────────────────────────────────────────────────────
-        const misc    = miscBodega;
-        const seriados = [...(serBodega||[]), ...(seriesData||[])];
         document.getElementById('mis-stats').innerHTML = `
             <div class="istat">
-                <span class="istat-num">${misc.length + seriados.length}</span>
+                <span class="istat-num">${todos.length}</span>
                 <span class="istat-label">En mi cargo</span>
             </div>
             <div class="istat istat-cyan">
                 <span class="istat-num">${seriados.length}</span>
-                <span class="istat-label">Equipos seriados</span>
+                <span class="istat-label">Seriados</span>
             </div>
             <div class="istat istat-blue">
-                <span class="istat-num">${hist.length}</span>
-                <span class="istat-label">Recepciones</span>
+                <span class="istat-num">${misc.length}</span>
+                <span class="istat-label">Misceláneos</span>
             </div>`;
 
         window._misBodegaItems = { misc, series: seriados };
 
-        // ── Renderizar Stock Actual ────────────────────────────────────────
+        // ── Renderizar Mi Inventario ──────────────────────────────────────
         const tbody = document.getElementById('mis-tbody');
         const count = document.getElementById('mis-count');
 
-        const allItems = [
-            ...misc.map(m => ({
-                _tipo:  'misc',
-                nombre: m.nombre || m.articulo || '—',
-                codigo: m.codigo || '—',
-                serie:  null,
-                stock:  m.cantidad || 0,
-                unidad: m.unidad || 'und',
-                estado: m.estado || 'disponible',
-                fecha:  m.fecha_ingreso,
-            })),
-            ...(serBodega||[]).map(s => ({
-                _tipo:  'seriado',
-                nombre: s.nombre || s.articulo || '—',
-                codigo: s.codigo || '—',
-                serie:  s.serie || '—',
-                stock:  1,
-                unidad: 'und',
-                estado: s.estado || 'entregado',
-                fecha:  s.fecha_ingreso,
-            })),
-            ...(seriesData||[]).map(s => ({
-                _tipo:  'seriado',
-                nombre: s.articulos?.nombre || '—',
-                codigo: s.articulos?.codigo || '—',
-                serie:  s.numero_serie,
-                stock:  1,
-                unidad: 'und',
-                estado: s.estado,
-                fecha:  null,
-            })),
-        ];
-
-        if (!allItems.length) {
+        if (!todos.length) {
             tbody.innerHTML = '<tr><td colspan="6" class="empty-row">Sin material asignado actualmente.</td></tr>';
+            if (count) count.textContent = '';
         } else {
+            // Mostrar misceláneos primero, luego seriados
+            const allItems = [
+                ...misc.map(b => ({
+                    _tipo:  'MISC',
+                    nombre: b.nombre || b.articulo || '—',
+                    codigo: b.codigo || '—',
+                    serie:  null,
+                    stock:  b.cantidad || 0,
+                    unidad: b.unidad || 'und',
+                    estado: b.estado || 'disponible',
+                })),
+                ...seriados.map(b => ({
+                    _tipo:  'SERIADO',
+                    nombre: b.nombre || b.articulo || '—',
+                    codigo: b.codigo || '—',
+                    serie:  b.serie  || '—',
+                    stock:  1,
+                    unidad: 'und',
+                    estado: b.estado || 'entregado',
+                })),
+            ];
+
             tbody.innerHTML = allItems.map((item, idx) => {
-                const crit  = item._tipo === 'misc' && item.stock < 5;
-                const warn  = item._tipo === 'misc' && item.stock < 20 && !crit;
-                const color = crit ? 'var(--danger)' : warn ? '#f39c12' : 'var(--green)';
-                const stockCell = `<span style="font-family:var(--font-mono);font-weight:700;color:${color}">
-                    ${item.stock.toLocaleString()} <small style="font-size:.75em;color:var(--dim)">${esc(item.unidad)}</small>
-                    ${crit ? ' ⚠️' : warn ? ' 〽️' : ''}
-                </span>`;
-                const fechaStr = item.fecha
-                    ? new Date(item.fecha).toLocaleDateString('es-SV')
-                    : '—';
-                return `<tr>
+                const esMisc = item._tipo === 'MISC';
+                const crit   = esMisc && item.stock < 5;
+                const warn   = esMisc && item.stock < 20 && !crit;
+                const color  = crit ? 'var(--danger)' : warn ? '#f39c12' : 'var(--green)';
+                const stockCell = esMisc
+                    ? `<span style="font-family:var(--font-mono);font-weight:700;color:${color}">
+                           ${item.stock.toLocaleString()}
+                           <small style="font-size:.75em;color:var(--dim)">${esc(item.unidad)}</small>
+                           ${crit ? ' ⚠️' : warn ? ' 〽️' : ''}
+                       </span>`
+                    : `<span style="color:var(--dim);font-size:.82rem">1 und</span>`;
+
+                return `<tr ${crit ? 'style="background:rgba(255,77,109,.05)"' : ''}>
                     <td class="row-num">${idx+1}</td>
                     <td>
                         <div class="td-bold">${esc(item.nombre)}</div>
                         <div style="font-size:.7rem;color:var(--dim);font-family:var(--font-mono)">${esc(item.codigo)}</div>
                     </td>
+                    <td>
+                        <span class="tipo-badge ${esMisc ? 'tipo-cantidad' : 'tipo-seriado'}"
+                            style="font-size:.65rem">${item._tipo}</span>
+                    </td>
                     <td>${item.serie
                         ? `<code class="serie-code" style="font-size:.78rem">${esc(item.serie)}</code>`
-                        : `<span class="tipo-badge tipo-cantidad" style="font-size:.65rem">MISC</span>`}
+                        : `<span style="color:var(--dim)">—</span>`}
                     </td>
                     <td style="text-align:center">${stockCell}</td>
-                    <td><span class="badge badge-${(item.estado||'').toLowerCase() === 'disponible' ? 'disponible' : 'reservado'}"
+                    <td><span class="badge badge-${(item.estado).toLowerCase() === 'disponible'||item.estado.toLowerCase()==='entregado' ? 'disponible' : 'reservado'}"
                         style="font-size:.72rem">${esc(item.estado)}</span></td>
-                    <td class="td-date">${fechaStr}</td>
                 </tr>`;
             }).join('');
-        }
-        if (count) count.textContent = `${allItems.length} artículo${allItems.length!==1?'s':''} en tu cargo`;
 
-        // ── Renderizar Historial de Entregas ───────────────────────────────
+            if (count) count.textContent =
+                `${todos.length} artículo${todos.length!==1?'s':''} — ${misc.length} misc · ${seriados.length} seriado${seriados.length!==1?'s':''}`;
+        }
+
+        // ── Renderizar Historial de Entregas ──────────────────────────────
         const histTbody = document.getElementById('hist-tbody');
         const histCount = document.getElementById('hist-count');
 
         if (!hist.length) {
-            histTbody.innerHTML = '<tr><td colspan="7" class="empty-row">No tienes entregas registradas aún.</td></tr>';
+            histTbody.innerHTML =
+                '<tr><td colspan="7" class="empty-row">No tienes entregas registradas aún.</td></tr>';
         } else {
             histTbody.innerHTML = hist.map((h, idx) => {
-                const artNombre = h.art?.nombre || h.nombre_articulo || '(artículo sin nombre)';
+                const artNombre = h.art?.nombre || h.nombre_articulo || '—';
                 const artCodigo = h.art?.codigo || '';
                 const unidad    = h.art?.unidad_medida || 'und';
-                const fecha     = h.fecha ? new Date(h.fecha).toLocaleDateString('es-SV') : '—';
+                const desp      = h.despachado_por || 'Bodega Central';
+                const fecha     = h.fecha
+                    ? new Date(h.fecha).toLocaleDateString('es-SV')
+                    : '—';
                 return `<tr>
                     <td class="row-num">${idx+1}</td>
-                    <td><code class="sku-code">#${h.correlativo || '—'}</code></td>
+                    <td><code class="sku-code">#${h.correlativo||'—'}</code></td>
                     <td class="td-bold">
                         ${esc(artNombre)}
-                        ${artCodigo ? `<br><span style="font-size:.7rem;color:var(--dim)">${esc(artCodigo)}</span>` : ''}
+                        ${artCodigo
+                            ? `<br><span style="font-size:.7rem;color:var(--dim)">${esc(artCodigo)}</span>`
+                            : ''}
                     </td>
-                    <td style="font-family:var(--font-mono)">${h.cantidad || '—'} ${esc(unidad)}</td>
-                    <td style="font-size:.82rem">${esc(h.despachado_por || 'Bodega Central')}</td>
+                    <td style="font-family:var(--font-mono)">${h.cantidad||'—'} ${esc(unidad)}</td>
+                    <td style="font-size:.82rem">${esc(desp)}</td>
                     <td class="td-date">${fecha}</td>
                     <td>
                         <button class="act-btn act-edit"
                             onclick="verFacturaSalida('${h.id}')">
-                            👁 Ver
+                            📄 Ver
                         </button>
                     </td>
                 </tr>`;
             }).join('');
         }
-        if (histCount) histCount.textContent = `${hist.length} entrega${hist.length!==1?'s':''}`;
+        if (histCount) histCount.textContent =
+            `${hist.length} entrega${hist.length!==1?'s':''}`;
 
     } catch (err) {
         console.error('PROINTEL — cargarMisArticulos:', err);
         document.getElementById('mis-tbody').innerHTML =
-            `<tr><td colspan="6" class="empty-row error-msg">❌ ${esc(err.message)}</td></tr>`;
+            `<tr><td colspan="6" class="empty-row error-msg">
+                ❌ ${esc(err.message)}
+            </td></tr>`;
     }
 }
 
