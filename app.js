@@ -3804,14 +3804,82 @@ async function guardarSalida(e) {
             (errSal.details ? ' | ' + errSal.details : '')
         );
 
-        // Actualizar series ENTREGADO + asignado_a
+        // Actualizar stock en bodega por cada artículo
+        // Esto va DESPUÉS del insert — si falla, el error queda registrado pero
+        // el insert de registros_salida ya se hizo (no hay rollback en Supabase JS)
+        const erroresStock = [];
+
         for (const item of lista) {
-            if (item._tipo === 'seriado' && item.serie_id) {
-                await window.supabase
-                    .from('series')
-                    .update({ estado: 'ENTREGADO', asignado_a: tecnico_id })
-                    .eq('id', item.serie_id);
+            const bodegaId = item._bodega_id;
+
+            if (item._tipo === 'seriado') {
+                // Seriado: cambiar estado a ENTREGADO
+                if (item.serie_id) {
+                    const { error } = await window.supabase
+                        .from('series')
+                        .update({ estado: 'ENTREGADO', asignado_a: tecnico_id })
+                        .eq('id', item.serie_id);
+                    if (error) erroresStock.push(`Serie ${item.serie}: ${error.message}`);
+                }
+                if (bodegaId) {
+                    const { error } = await window.supabase
+                        .from('bodega')
+                        .update({ estado: 'entregado', asignado_a: tecnico_id })
+                        .eq('id', bodegaId);
+                    if (error) erroresStock.push(`Bodega seriado ${item.nombre}: ${error.message}`);
+                }
+
+            } else {
+                // Misceláneo: restar cantidad exacta de bodega
+                if (bodegaId) {
+                    // Leer cantidad actual para hacer la resta segura
+                    const { data: actual } = await window.supabase
+                        .from('bodega')
+                        .select('cantidad')
+                        .eq('id', bodegaId)
+                        .maybeSingle();
+
+                    const cantActual = Number(actual?.cantidad || 0);
+                    const cantNueva  = Math.max(0, cantActual - item.cantidad);
+                    const estadoNuevo = cantNueva <= 0 ? 'agotado' : 'disponible';
+
+                    const { error } = await window.supabase
+                        .from('bodega')
+                        .update({ cantidad: cantNueva, estado: estadoNuevo })
+                        .eq('id', bodegaId);
+
+                    if (error) {
+                        erroresStock.push(`Stock ${item.nombre}: ${error.message}`);
+                    } else {
+                        console.log(`PROINTEL — stock actualizado: ${item.nombre} | ${cantActual} → ${cantNueva}`);
+                    }
+
+                } else if (item.codigo) {
+                    // Fallback: actualizar por código si no hay bodega_id
+                    const { data: rows } = await window.supabase
+                        .from('bodega')
+                        .select('id, cantidad')
+                        .eq('codigo', item.codigo)
+                        .ilike('estado', 'disponible')
+                        .order('cantidad', { ascending: false })
+                        .limit(1)
+                        .maybeSingle();
+
+                    if (rows) {
+                        const cantNueva = Math.max(0, Number(rows.cantidad) - item.cantidad);
+                        await window.supabase
+                            .from('bodega')
+                            .update({ cantidad: cantNueva, estado: cantNueva <= 0 ? 'agotado' : 'disponible' })
+                            .eq('id', rows.id);
+                        console.log(`PROINTEL — stock por código: ${item.nombre} | ${rows.cantidad} → ${cantNueva}`);
+                    }
+                }
             }
+        }
+
+        // Si hubo errores de stock, avisar pero no bloquear (el registro ya se guardó)
+        if (erroresStock.length) {
+            console.warn('PROINTEL — errores actualizando stock:', erroresStock);
         }
 
         // Éxito
@@ -3819,6 +3887,9 @@ async function guardarSalida(e) {
         window._articuloSeleccionado = null;
         cerrarModal('modal-salida', true);
         _mostrarToastExito(`✅ Correlativo #${correlativo} — ${lista.length} artículo${lista.length!==1?'s':''} registrado${lista.length!==1?'s':''}`);
+
+        // Refrescar inventario si está visible
+        if (currentTab === 'bodega') cargarInventarioBodega();
         cargarSalidas();
 
     } catch (err) {
