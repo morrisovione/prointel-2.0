@@ -2655,7 +2655,7 @@ async function cargarSalidas() {
         // Consulta con join FK — articulos(nombre,codigo) gracias al puente SQL
         let query = window.supabase
             .from('registros_salida')
-            .select('id, correlativo, articulo_id, tecnico_id, cantidad, fecha, firma, nombre_articulo, despachado_por, articulos(nombre, codigo, unidad_medida)')
+            .select('id, correlativo, articulo_id, tecnico_id, cantidad, fecha, firma, nombre_articulo, despachado_por')
             .order('correlativo', { ascending: false });
 
         if (esTec && currentUser?.id) {
@@ -5085,12 +5085,19 @@ async function cargarMisArticulos() {
         const histTbody = document.getElementById('hist-tbody');
         const histCount = document.getElementById('hist-count');
 
-        console.log('PROINTEL — renderizando historial, filas:', hist.length, hist.map(h=>h.nombre_articulo));
-        if (!hist.length) {
-            histTbody.innerHTML =
-                '<tr><td colspan="7" class="empty-row">No tienes entregas registradas aún.</td></tr>';
-        } else {
-            histTbody.innerHTML = hist.map((h, idx) => {
+        console.log('PROINTEL — renderizando historial, filas:', hist.length);
+
+        // Esperar al DOM — el panel está hidden durante la carga async
+        const renderHistorial = () => {
+            const hTbody = document.getElementById('hist-tbody');
+            const hCount = document.getElementById('hist-count');
+            if (!hTbody) { console.warn('hist-tbody no encontrado en DOM'); return; }
+
+            if (!hist.length) {
+                hTbody.innerHTML =
+                    '<tr><td colspan="7" class="empty-row">No tienes entregas registradas aún.</td></tr>';
+            } else {
+                hTbody.innerHTML = hist.map((h, idx) => {
                 const artNombre = h.art?.nombre || h.nombre_articulo || '—';
                 const artCodigo = h.art?.codigo || '';
                 const unidad    = h.art?.unidad_medida || 'und';
@@ -5118,9 +5125,13 @@ async function cargarMisArticulos() {
                     </td>
                 </tr>`;
             }).join('');
-        }
-        if (histCount) histCount.textContent =
-            `${hist.length} entrega${hist.length!==1?'s':''}`;
+            }
+            if (hCount) hCount.textContent =
+                `${hist.length} entrega${hist.length!==1?'s':''}`;
+        };
+        // Ejecutar ahora y también después de 200ms por si el DOM tardó
+        renderHistorial();
+        setTimeout(renderHistorial, 200);
 
     } catch (err) {
         console.error('PROINTEL — cargarMisArticulos:', err);
