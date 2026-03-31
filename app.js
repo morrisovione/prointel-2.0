@@ -2703,13 +2703,10 @@ function renderSalidas(filas) {
 
 // ── Vale de Salida — visor e impresión ───────────────────
 async function verFacturaSalida(id) {
-    // Quitar modal previo si existe
     document.getElementById('modal-factura-salida')?.remove();
 
-    // Skeleton mientras carga
     document.body.insertAdjacentHTML('beforeend', `
-        <div class="modal-overlay" id="modal-factura-salida"
-            onclick="event.stopPropagation()">
+        <div class="modal-overlay" id="modal-factura-salida" onclick="event.stopPropagation()">
             <div class="modal-content mfs-content" onclick="event.stopPropagation()">
                 <div class="modal-head">
                     <div class="modal-head-left">
@@ -2720,9 +2717,7 @@ async function verFacturaSalida(id) {
                         onclick="document.getElementById('modal-factura-salida').remove()">✕</button>
                 </div>
                 <div class="modal-body" id="mfs-body">
-                    <p class="loading-msg" style="padding:2rem;text-align:center">
-                        ⏳ Cargando comprobante…
-                    </p>
+                    <p style="padding:2rem;text-align:center;color:var(--dim)">⏳ Cargando…</p>
                 </div>
                 <div class="modal-foot">
                     <button class="btn-ghost-sm"
@@ -2737,37 +2732,53 @@ async function verFacturaSalida(id) {
         </div>`);
 
     try {
-        // Buscar el registro — puede ser string (UUID) o número
-        let registro = cacheSalidas.find(x => String(x.id) === String(id));
+        // 1. Obtener el registro de registros_salida
+        let registro = (cacheSalidas || []).find(x => String(x.id) === String(id));
 
-        // Si no está en caché, consultar BD
         if (!registro) {
             const { data, error } = await window.supabase
                 .from('registros_salida')
                 .select('id, correlativo, articulo_id, tecnico_id, cantidad, fecha, firma, nombre_articulo')
                 .eq('id', id)
                 .maybeSingle();
-            if (error) throw error;
-            if (!data)  throw new Error('Registro no encontrado (ID: ' + id + ')');
+            if (error) throw new Error('Error al buscar registro: ' + error.message);
+            if (!data)  throw new Error('Registro no encontrado.');
             registro = data;
         }
 
-        // Enriquecer con artículo y técnico en paralelo
-        const [resArt, resTec] = await Promise.all([
-            registro.articulo_id
-                ? window.supabase.from('articulos')
-                    .select('nombre, codigo, unidad_medida')
-                    .eq('id', registro.articulo_id).maybeSingle()
-                : Promise.resolve({ data: null }),
-            registro.tecnico_id
-                ? window.supabase.from('usuarios')
-                    .select('nombre_completo, usuario')
-                    .eq('id', registro.tecnico_id).maybeSingle()
-                : Promise.resolve({ data: null }),
-        ]);
+        // 2. Enriquecer artículo — primero FK, luego nombre_articulo, luego bodega
+        let artNombre = registro.nombre_articulo || '—';
+        let artCodigo = '';
+        let artUnidad = 'und';
 
-        const art = resArt.data || {};
-        const tec = resTec.data || {};
+        if (registro.articulo_id) {
+            const { data: artData } = await window.supabase
+                .from('articulos')
+                .select('nombre, codigo, unidad_medida')
+                .eq('id', registro.articulo_id)
+                .maybeSingle();
+            if (artData) {
+                artNombre = artData.nombre || artNombre;
+                artCodigo = artData.codigo || '';
+                artUnidad = artData.unidad_medida || 'und';
+            }
+        }
+
+        // Si aún no tiene nombre, buscar en bodega por nombre_articulo
+        if (artNombre === '—' && registro.nombre_articulo) {
+            artNombre = registro.nombre_articulo;
+        }
+
+        // 3. Obtener técnico
+        let tecNombre = '—';
+        if (registro.tecnico_id) {
+            const { data: tec } = await window.supabase
+                .from('usuarios')
+                .select('nombre_completo, usuario')
+                .eq('id', registro.tecnico_id)
+                .maybeSingle();
+            if (tec) tecNombre = tec.nombre_completo || tec.usuario || '—';
+        }
 
         const fecha = registro.fecha
             ? new Date(registro.fecha).toLocaleDateString('es-SV', {
@@ -2788,7 +2799,6 @@ async function verFacturaSalida(id) {
         document.getElementById('mfs-body').innerHTML = `
             <div id="mfs-printable">
 
-                <!-- Encabezado -->
                 <div class="mfs-head">
                     <div>
                         <div class="mfs-brand">PRO<span>INTEL</span></div>
@@ -2801,13 +2811,10 @@ async function verFacturaSalida(id) {
                     </div>
                 </div>
 
-                <!-- Datos del técnico -->
                 <div class="mfs-info-grid">
                     <div class="mfs-info-card">
                         <div class="mfs-info-label">Técnico que recibe</div>
-                        <div class="mfs-info-val">
-                            ${esc(tec.nombre_completo || tec.usuario || '—')}
-                        </div>
+                        <div class="mfs-info-val">${esc(tecNombre)}</div>
                     </div>
                     <div class="mfs-info-card">
                         <div class="mfs-info-label">Correlativo</div>
@@ -2817,7 +2824,6 @@ async function verFacturaSalida(id) {
                     </div>
                 </div>
 
-                <!-- Tabla de artículos -->
                 <table class="mfs-tabla">
                     <thead>
                         <tr>
@@ -2829,16 +2835,12 @@ async function verFacturaSalida(id) {
                     </thead>
                     <tbody>
                         <tr>
-                            <td class="td-bold">${esc(art.nombre || '—')}</td>
-                            <td><code style="font-family:var(--font-mono);font-size:.82rem">
-                                ${esc(art.codigo || '—')}
-                            </code></td>
-                            <td style="text-align:center;font-family:var(--font-mono);font-weight:700">
+                            <td class="td-bold">${esc(artNombre)}</td>
+                            <td><code style="font-size:.82rem">${esc(artCodigo || '—')}</code></td>
+                            <td style="text-align:center;font-weight:700;font-family:var(--font-mono)">
                                 ${registro.cantidad || 1}
                             </td>
-                            <td style="text-align:center;color:var(--dim)">
-                                ${esc(art.unidad_medida || 'und')}
-                            </td>
+                            <td style="text-align:center;color:var(--dim)">${esc(artUnidad)}</td>
                         </tr>
                     </tbody>
                 </table>
@@ -2849,19 +2851,21 @@ async function verFacturaSalida(id) {
                     <span>PROINTEL 2.0 — Sistema de Gestión Residencial</span>
                     <span>Impreso el ${new Date().toLocaleDateString('es-SV')}</span>
                 </div>
+
             </div>`;
 
     } catch (err) {
-        const body = document.getElementById('mfs-body');
-        if (body) body.innerHTML = `
+        console.error('PROINTEL — verFacturaSalida:', err);
+        document.getElementById('mfs-body').innerHTML = `
             <div style="padding:2rem;text-align:center">
-                <div style="font-size:2rem;margin-bottom:.8rem">❌</div>
-                <div style="font-weight:700;color:var(--danger)">${esc(err.message)}</div>
-                <div style="font-size:.8rem;color:var(--dim);margin-top:.4rem">
-                    Revisa la consola (F12) para más detalles.
+                <div style="font-size:2rem">❌</div>
+                <div style="color:var(--danger);font-weight:700;margin-top:.5rem">
+                    ${esc(err.message)}
+                </div>
+                <div style="font-size:.78rem;color:var(--dim);margin-top:.3rem">
+                    Revisa F12 → Console para más detalles.
                 </div>
             </div>`;
-        console.error('PROINTEL — verFacturaSalida:', err);
     }
 }
 
