@@ -3281,11 +3281,11 @@ async function buscarArticuloSalida(q) {
                         .limit(12),
                     window.supabase
                         .from('bodega')
-                        .select('id, codigo, nombre, articulo, tipo_material, unidad, cantidad, estado')
+                        .select('id, codigo, nombre, articulo, tipo_material, unidad, cantidad, estado, serie')
                         .or(`nombre.ilike.%${qClean}%,articulo.ilike.%${qClean}%,codigo.ilike.%${qClean}%,serie.ilike.%${qClean}%`)
                         .ilike('estado', 'disponible')
                         .is('asignado_a', null)
-                        .limit(8),
+                        .limit(12),
                 ]);
 
                 console.log('PROINTEL — articulos:', resArt.data?.length, 'bodega:', resBodega.data?.length);
@@ -3310,17 +3310,22 @@ async function buscarArticuloSalida(q) {
                     };
                 });
 
-                const deBodega = (resBodega.data || []).map(b => ({
-                    _fuente:    'bodega',
-                    _tipo:      (!b.tipo_material || b.tipo_material === 'seriado') ? 'articulo' : 'articulo',
-                    art_id:     b.id,
-                    nombre:     b.nombre || b.articulo,
-                    codigo:     b.codigo,
-                    unidad:     b.unidad || 'und',
-                    categoria:  (!b.tipo_material || b.tipo_material === 'seriado') ? 'SERIADO' : 'MISCELANEO',
-                    cantidad:   b.cantidad,
-                    _bodega_id: b.id,
-                }));
+                const deBodega = (resBodega.data || []).map(b => {
+                    const esSer = !b.tipo_material || b.tipo_material === 'seriado';
+                    return {
+                        _fuente:    'bodega',
+                        _tipo:      'articulo',
+                        art_id:     b.id,
+                        nombre:     b.nombre || b.articulo || '—',
+                        codigo:     b.codigo  || '',
+                        unidad:     b.unidad  || 'und',
+                        // categoria correcta según tipo_material de bodega
+                        categoria:  esSer ? 'SERIADO' : 'MISCELANEO',
+                        // cantidad viene de bodega.cantidad (la columna real)
+                        cantidad:   b.cantidad ?? 0,
+                        _bodega_id: b.id,
+                    };
+                });
 
                 // Combinar sin duplicados por código
                 const vistos  = new Set();
