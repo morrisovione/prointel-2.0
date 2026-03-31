@@ -3845,7 +3845,8 @@ async function guardarSalida(e) {
             .maybeSingle();
 
         if (!tData) throw new Error('No se encontró el técnico "' + tecnico + '" en el sistema.');
-        const tecnico_id = tData.id;
+        const tecnico_id        = tData.id;
+        const tecNombreCompleto = tData.nombre_completo || tData.usuario || tecnico;
 
         // Correlativo automático — máximo + 1
         const { data: corrData } = await window.supabase
@@ -3931,49 +3932,84 @@ async function guardarSalida(e) {
                 }
 
             } else {
-                // Misceláneo: restar cantidad exacta de bodega
-                if (bodegaId) {
-                    // Leer cantidad actual para hacer la resta segura
-                    const { data: actual } = await window.supabase
+                // Misceláneo: restar del stock central Y crear registro personal del técnico
+                const srcId = bodegaId || null;
+
+                // 1. Obtener datos completos del artículo fuente
+                let srcRow = null;
+                if (srcId) {
+                    const { data } = await window.supabase
                         .from('bodega')
-                        .select('cantidad')
-                        .eq('id', bodegaId)
+                        .select('*')
+                        .eq('id', srcId)
                         .maybeSingle();
-
-                    const cantActual = Number(actual?.cantidad || 0);
-                    const cantNueva  = Math.max(0, cantActual - item.cantidad);
-                    const estadoNuevo = cantNueva <= 0 ? 'agotado' : 'disponible';
-
-                    const { error } = await window.supabase
-                        .from('bodega')
-                        .update({ cantidad: cantNueva, estado: estadoNuevo })
-                        .eq('id', bodegaId);
-
-                    if (error) {
-                        erroresStock.push(`Stock ${item.nombre}: ${error.message}`);
-                    } else {
-                        console.log(`PROINTEL — stock actualizado: ${item.nombre} | ${cantActual} → ${cantNueva}`);
-                    }
-
+                    srcRow = data;
                 } else if (item.codigo) {
-                    // Fallback: actualizar por código si no hay bodega_id
-                    const { data: rows } = await window.supabase
+                    const { data } = await window.supabase
                         .from('bodega')
-                        .select('id, cantidad')
+                        .select('*')
                         .eq('codigo', item.codigo)
                         .ilike('estado', 'disponible')
+                        .is('asignado_a', null)
                         .order('cantidad', { ascending: false })
                         .limit(1)
                         .maybeSingle();
+                    srcRow = data;
+                }
 
-                    if (rows) {
-                        const cantNueva = Math.max(0, Number(rows.cantidad) - item.cantidad);
+                if (srcRow) {
+                    const cantActual = Number(srcRow.cantidad || 0);
+                    const cantNueva  = Math.max(0, cantActual - item.cantidad);
+
+                    // 2. Restar del stock central (bodega disponible)
+                    const { error: errResta } = await window.supabase
+                        .from('bodega')
+                        .update({
+                            cantidad: cantNueva,
+                            estado:   cantNueva <= 0 ? 'agotado' : 'disponible',
+                        })
+                        .eq('id', srcRow.id);
+
+                    if (errResta) {
+                        erroresStock.push(`Resta stock ${item.nombre}: ${errResta.message}`);
+                    } else {
+                        console.log(`PROINTEL — stock central: ${item.nombre} | ${cantActual} → ${cantNueva}`);
+                    }
+
+                    // 3. Crear o actualizar fila personal del técnico en bodega
+                    // Buscar si ya tiene una fila asignada para este artículo
+                    const { data: yaExiste } = await window.supabase
+                        .from('bodega')
+                        .select('id, cantidad')
+                        .eq('codigo', srcRow.codigo || '')
+                        .eq('asignado_a', tecnico_id)
+                        .maybeSingle();
+
+                    if (yaExiste) {
+                        // Sumar a lo que ya tiene
                         await window.supabase
                             .from('bodega')
-                            .update({ cantidad: cantNueva, estado: cantNueva <= 0 ? 'agotado' : 'disponible' })
-                            .eq('id', rows.id);
-                        console.log(`PROINTEL — stock por código: ${item.nombre} | ${rows.cantidad} → ${cantNueva}`);
+                            .update({ cantidad: Number(yaExiste.cantidad || 0) + item.cantidad })
+                            .eq('id', yaExiste.id);
+                    } else {
+                        // Crear fila nueva para el técnico
+                        await window.supabase
+                            .from('bodega')
+                            .insert({
+                                nombre:        srcRow.nombre        || srcRow.articulo,
+                                articulo:      srcRow.articulo      || srcRow.nombre,
+                                codigo:        srcRow.codigo        || null,
+                                tipo_material: 'miscelaneo',
+                                cantidad:      item.cantidad,
+                                unidad:        srcRow.unidad        || 'und',
+                                estado:        'disponible',
+                                asignado_a:    tecnico_id,
+                                responsable:   tecNombreCompleto    || null,
+                                cuadrilla:     tData?.cuadrilla     || null,
+                                fecha_ingreso: new Date().toISOString().split('T')[0],
+                            });
                     }
+                    console.log(`PROINTEL — bodega técnico: +${item.cantidad} ${item.nombre} → ${tecNombreCompleto}`);
                 }
             }
         }
