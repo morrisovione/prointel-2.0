@@ -1,34 +1,71 @@
-<!-- SECCIÓN BODEGA TÉCNICO -->
-<section id="view-bodega-tecnico" class="view-section hidden">
-    <div class="bodega-container">
-        
-        <!-- HEADER -->
-        <header class="bodega-header">
-            <div class="header-title">
-                <span class="icon">📦</span>
-                <h1>Mi Inventario Asignado</h1>
+<!DOCTYPE html>
+<html lang="es" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PROINTEL 2.0</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <header class="main-header">
+        <div class="logo">PROINTEL 2.0</div>
+        <div class="user-info">
+            <span id="clock-display">00:00:00</span>
+            <span id="user-display">Invitado</span>
+            <button id="theme-toggle">🌙</button>
+        </div>
+    </header>
+
+    <main id="app-container">
+        <section id="view-landing" class="view-section">
+            <div class="login-card">
+                <h2>Bienvenido</h2>
+                <p>Inicia sesión para continuar</p>
+                <button onclick="document.getElementById('view-dashboard').classList.remove('hidden'); showSection('view-dashboard')">Entrar al Sistema</button>
             </div>
-            <p class="responsable-info">
-                Responsable: <strong id="tech-name-display">—</strong>
-            </p>
-        </header>
+        </section>
 
-        <!-- CONTENIDO PRINCIPAL -->
-        <main class="bodega-main">
-            <div id="bodega-inventario">
-                <!-- Se rellena con JavaScript -->
+        <section id="view-dashboard" class="view-section hidden">
+            <div class="menu-grid">
+                <button class="menu-btn" onclick="showSection('view-bodega'); cargarMiBodega();">📦 MI BODEGA</button>
+                <button class="menu-btn" onclick="alert('Próximamente')">🛠️ SERVICIOS</button>
             </div>
-        </main>
+        </section>
 
-        <!-- FOOTER -->
-        <footer class="bodega-footer">
-            <button class="btn btn-secondary" onclick="showSection('view-dashboard')">
-                ← Volver al Dashboard
-            </button>
-            <button class="btn btn-primary" onclick="cargarBodegaTecnico()">
-                🔄 Actualizar
-            </button>
-        </footer>
+        <section id="view-bodega" class="view-section hidden">
+            <button onclick="showSection('view-dashboard')" class="btn-back">⬅ Volver</button>
+            <h2>Mi Inventario Actual</h2>
+            
+            <h3>Equipos Seriados</h3>
+            <table>
+                <thead><tr><th>Nombre</th><th>Código</th><th>Serie</th><th>Cant</th></tr></thead>
+                <tbody id="tabla-seriados-body"></tbody>
+            </table>
 
+            <h3>Material Misceláneo</h3>
+            <table>
+                <thead><tr><th>Nombre</th><th>Código</th><th>Cant</th></tr></thead>
+                <tbody id="tabla-misc-body"></tbody>
+            </table>
+
+            <hr>
+            <h3>Historial de Entregas</h3>
+            <table>
+                <thead><tr><th>Fecha</th><th>OT</th><th>Producto</th><th>Cant</th><th>Acción</th></tr></thead>
+                <tbody id="historial-entregas-body"></tbody>
+            </table>
+        </section>
+    </main>
+
+    <div id="modal-factura" class="modal hidden">
+        <div class="modal-content">
+            <span class="close" onclick="this.parentElement.parentElement.classList.add('hidden')">&times;</span>
+            <div id="factura-detalle"></div>
+            <button onclick="window.print()">🖨️ Imprimir</button>
+        </div>
     </div>
-</section>
+
+    <script src="app.js"></script>
+</body>
+</html>
