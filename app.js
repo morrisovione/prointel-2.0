@@ -4830,24 +4830,26 @@ async function cargarMisArticulos() {
         if (uid)    condMisc.push(`asignado_a.eq.${uid}`);
         if (nombre) condMisc.push(`responsable.eq.${nombre}`);
 
-        const { data: miscBodega } = condMisc.length
+        // Traer TODO el stock del técnico en una sola consulta
+        const { data: todoBodegaMis } = condMisc.length
             ? await window.supabase
                 .from('bodega')
-                .select('id, nombre, articulo, codigo, tipo_material, unidad, cantidad, estado, fecha_ingreso')
+                .select('id, nombre, articulo, codigo, tipo_material, unidad, cantidad, estado, serie, fecha_ingreso')
                 .or(condMisc.join(','))
                 .not('estado', 'in', '("vendido","instalado","agotado")')
-                .eq('tipo_material', 'miscelaneo')
             : { data: [] };
 
-        // Seriados: bodega seriada asignada al técnico
-        const { data: serBodega } = condMisc.length
-            ? await window.supabase
-                .from('bodega')
-                .select('id, nombre, articulo, codigo, serie, estado, fecha_ingreso')
-                .or(condMisc.join(','))
-                .not('estado', 'in', '("vendido","instalado")')
-                .not('tipo_material', 'eq', 'miscelaneo')
-            : { data: [] };
+        const todoBodegaMisArr = todoBodegaMis || [];
+        // Separar por tipo — compatible con valores null/vacío
+        const miscBodega  = todoBodegaMisArr.filter(b => {
+            const t = (b.tipo_material || '').toLowerCase();
+            return t === 'miscelaneo' || t === 'misceláneos' || t === 'misceláneo' ||
+                   (!t && !b.serie);
+        });
+        const serBodega   = todoBodegaMisArr.filter(b => {
+            const t = (b.tipo_material || '').toLowerCase();
+            return t === 'seriado' || b.serie;
+        });
 
         // También buscar en tabla series (si existe)
         const { data: seriesData } = await window.supabase
@@ -4883,7 +4885,7 @@ async function cargarMisArticulos() {
         }));
 
         // ── Stats ──────────────────────────────────────────────────────────
-        const misc    = miscBodega  || [];
+        const misc    = miscBodega;
         const seriados = [...(serBodega||[]), ...(seriesData||[])];
         document.getElementById('mis-stats').innerHTML = `
             <div class="istat">
@@ -5104,9 +5106,19 @@ async function abrirDescargos() {
         .or(condiciones.join(','))
         .not('estado', 'in', '("vendido","instalado","agotado")');
 
-    const todos   = todoBodega || [];
-    const misc    = todos.filter(b => b.tipo_material === 'miscelaneo');
-    const seriados = todos.filter(b => b.tipo_material !== 'miscelaneo');
+    const todos = todoBodega || [];
+    // Misceláneo: tipo_material = 'miscelaneo' O null/vacío con cantidad > 0 y sin serie
+    // Seriado:    tipo_material = 'seriado' O tiene número de serie
+    const misc     = todos.filter(b => {
+        const t = (b.tipo_material || '').toLowerCase().trim();
+        return t === 'miscelaneo' || t === 'misceláneos' || t === 'misceláneo' ||
+               (!t && !b.serie && b.cantidad > 1);
+    });
+    const seriados = todos.filter(b => {
+        const t = (b.tipo_material || '').toLowerCase().trim();
+        return t === 'seriado' || b.serie ||
+               (t !== 'miscelaneo' && t !== 'misceláneos' && t !== 'misceláneo' && (b.serie || t === 'seriado'));
+    }).filter(b => !misc.includes(b)); // evitar duplicados
 
     window._misBodegaItems = { misc, series: seriados };
 
