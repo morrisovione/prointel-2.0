@@ -2571,7 +2571,7 @@ async function cargarSalidas() {
         // Consulta con join FK — articulos(nombre,codigo) gracias al puente SQL
         let query = window.supabase
             .from('registros_salida')
-            .select('id, correlativo, articulo_id, tecnico_id, cantidad, fecha, firma, articulos(nombre, codigo, unidad_medida)')
+            .select('id, correlativo, articulo_id, tecnico_id, cantidad, fecha, firma, nombre_articulo, articulos(nombre, codigo, unidad_medida)')
             .order('correlativo', { ascending: false });
 
         if (esTec && currentUser?.id) {
@@ -2586,7 +2586,7 @@ async function cargarSalidas() {
             console.warn('PROINTEL — join articulos falló, usando fallback:', error.message);
             const { data: fallback } = await window.supabase
                 .from('registros_salida')
-                .select('id, correlativo, articulo_id, tecnico_id, cantidad, fecha, firma')
+                .select('id, correlativo, articulo_id, tecnico_id, cantidad, fecha, firma, nombre_articulo')
                 .order('correlativo', { ascending: false });
             rows = fallback || [];
         }
@@ -2637,7 +2637,7 @@ async function cargarSalidas() {
                 <td class="row-num">${idx + 1}</td>
                 <td><code class="sku-code">#${s.correlativo || '—'}</code></td>
                 <td class="td-bold">
-                    ${esc(art.nombre || '—')}
+                    ${esc(art.nombre || s.nombre_articulo || '—')}
                     ${art.codigo
                         ? `<br><span style="font-size:.7rem;color:var(--dim)">${esc(art.codigo)}</span>`
                         : ''}
@@ -2744,7 +2744,7 @@ async function verFacturaSalida(id) {
         if (!registro) {
             const { data, error } = await window.supabase
                 .from('registros_salida')
-                .select('id, correlativo, articulo_id, tecnico_id, cantidad, fecha, firma')
+                .select('id, correlativo, articulo_id, tecnico_id, cantidad, fecha, firma, nombre_articulo')
                 .eq('id', id)
                 .maybeSingle();
             if (error) throw error;
@@ -3769,13 +3769,35 @@ async function guardarSalida(e) {
         // art_id puede ser UUID (de bodega) o BIGINT (de articulos)
         // registros_salida.articulo_id es BIGINT — solo enviar si es número
         const ahora = new Date().toISOString();
+        // Resolver articulo_id BIGINT para items que vienen de bodega (UUID)
+        // Buscar en articulos por codigo para obtener el id numérico
+        const codigosParaBuscar = lista
+            .filter(item => {
+                const n = Number(item.art_id);
+                return isNaN(n) || String(item.art_id) !== String(n);
+            })
+            .map(item => item.codigo)
+            .filter(Boolean);
+
+        let codigoArtIdMap = {};
+        if (codigosParaBuscar.length) {
+            const { data: artsLookup } = await window.supabase
+                .from('articulos')
+                .select('id, codigo')
+                .in('codigo', codigosParaBuscar);
+            (artsLookup || []).forEach(a => { codigoArtIdMap[a.codigo] = a.id; });
+        }
+
         const lote  = lista.map(item => {
             const artIdNum = Number(item.art_id);
             const esNumero = !isNaN(artIdNum) && artIdNum > 0 && String(item.art_id) === String(artIdNum);
+            // Usar BIGINT de articulos si existe, si no buscar por código
+            const artId    = esNumero ? artIdNum : (codigoArtIdMap[item.codigo] || null);
             return {
                 correlativo,
                 tecnico_id,
-                articulo_id: esNumero ? artIdNum : null,
+                articulo_id: artId,
+                nombre_articulo: item.nombre || item.articulo || null,
                 cantidad:    item.cantidad,
                 fecha:       ahora,
                 firma:       firma,
@@ -4833,7 +4855,7 @@ async function cargarMisArticulos() {
         // ── Historial: registros_salida donde técnico es destinatario ──────
         const { data: histRaw } = await window.supabase
             .from('registros_salida')
-            .select('id, correlativo, articulo_id, tecnico_id, cantidad, fecha, firma')
+            .select('id, correlativo, articulo_id, tecnico_id, cantidad, fecha, firma, nombre_articulo')
             .eq('tecnico_id', uid)
             .order('correlativo', { ascending: false })
             .limit(50);
@@ -4953,7 +4975,7 @@ async function cargarMisArticulos() {
             histTbody.innerHTML = '<tr><td colspan="6" class="empty-row">No tienes entregas registradas aún.</td></tr>';
         } else {
             histTbody.innerHTML = hist.map((h, idx) => {
-                const artNombre = h.art?.nombre || '(artículo sin nombre)';
+                const artNombre = h.art?.nombre || h.nombre_articulo || '(artículo sin nombre)';
                 const artCodigo = h.art?.codigo || '';
                 const unidad    = h.art?.unidad_medida || 'und';
                 const fecha     = h.fecha ? new Date(h.fecha).toLocaleDateString('es-SV') : '—';
