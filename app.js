@@ -4976,12 +4976,14 @@ async function cargarMisArticulos() {
         const seriados = todos.filter(b => !esMiscFn(b));
 
         // ── Historial desde registros_salida ──────────────────────────────
-        const { data: histRaw } = await window.supabase
+        console.log('PROINTEL — historial uid:', uid);
+        const { data: histRaw, error: histErr } = await window.supabase
             .from('registros_salida')
             .select('id, correlativo, articulo_id, cantidad, fecha, nombre_articulo, despachado_por')
             .eq('tecnico_id', uid)
             .order('correlativo', { ascending: false })
             .limit(50);
+        console.log('PROINTEL — historial rows:', histRaw?.length, 'error:', histErr?.message);
 
         // Enriquecer historial con nombre de artículo desde tabla articulos
         const artIds = [...new Set((histRaw||[]).map(h => h.articulo_id).filter(Boolean))];
