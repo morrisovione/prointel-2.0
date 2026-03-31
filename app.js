@@ -4800,10 +4800,10 @@ async function cargarMisArticulos() {
                 <table class="data-table" id="tabla-historial">
                     <thead><tr>
                         <th>#</th><th>CORRELATIVO</th><th>ARTÍCULO</th>
-                        <th>CANTIDAD</th><th>DESPACHADO POR</th><th>FECHA</th>
+                        <th>CANTIDAD</th><th>DESPACHADO POR</th><th>FECHA</th><th>VER</th>
                     </tr></thead>
                     <tbody id="hist-tbody">
-                        <tr><td colspan="6" class="empty-row">⏳ Cargando…</td></tr>
+                        <tr><td colspan="7" class="empty-row">⏳ Cargando…</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -4972,7 +4972,7 @@ async function cargarMisArticulos() {
         const histCount = document.getElementById('hist-count');
 
         if (!hist.length) {
-            histTbody.innerHTML = '<tr><td colspan="6" class="empty-row">No tienes entregas registradas aún.</td></tr>';
+            histTbody.innerHTML = '<tr><td colspan="7" class="empty-row">No tienes entregas registradas aún.</td></tr>';
         } else {
             histTbody.innerHTML = hist.map((h, idx) => {
                 const artNombre = h.art?.nombre || h.nombre_articulo || '(artículo sin nombre)';
@@ -4989,6 +4989,12 @@ async function cargarMisArticulos() {
                     <td style="font-family:var(--font-mono)">${h.cantidad || '—'} ${esc(unidad)}</td>
                     <td style="font-size:.82rem;color:var(--dim)">Bodega Central</td>
                     <td class="td-date">${fecha}</td>
+                    <td>
+                        <button class="act-btn act-edit"
+                            onclick="verFacturaSalida('${h.id}')">
+                            👁 Ver
+                        </button>
+                    </td>
                 </tr>`;
             }).join('');
         }
@@ -5076,53 +5082,53 @@ async function abrirDescargos() {
     }
 
     if (!currentUser?.id) {
-        _notificar('Sin sesión válida. Por favor inicia sesión nuevamente.');
+        _notificar('Sin sesión válida.');
         return;
     }
 
-    // Cargar misceláneos del técnico
-    const { data: miscData } = await window.supabase
-        .from('inventario_tecnicos')
-        .select('id, cantidad_disponible, articulos(id,nombre,codigo,unidad_medida)')
-        .eq('tecnico_id', currentUser.id)
-        .gt('cantidad_disponible', 0);
+    const uid    = currentUser.id;
+    const nombre = currentUser.nombre_completo || currentUser.usuario || '';
 
-    // Cargar series ENTREGADO del técnico
-    const { data: serData } = await window.supabase
-        .from('series')
-        .select('id, numero_serie, articulos(id,nombre,codigo,unidad_medida)')
-        .eq('asignado_a', currentUser.id)
-        .eq('estado', 'ENTREGADO');
+    // Buscar material asignado al técnico en bodega
+    // Se filtra por asignado_a (UUID) o responsable (nombre)
+    const condiciones = [`asignado_a.eq.${uid}`];
+    if (nombre) condiciones.push(`responsable.eq.${nombre}`);
 
-    const misc   = miscData || [];
-    const series = serData  || [];
-    window._misBodegaItems = { misc, series };
+    const { data: todoBodega } = await window.supabase
+        .from('bodega')
+        .select('id, nombre, articulo, codigo, tipo_material, unidad, cantidad, estado, serie')
+        .or(condiciones.join(','))
+        .not('estado', 'in', '("vendido","instalado","agotado")');
+
+    const todos   = todoBodega || [];
+    const misc    = todos.filter(b => b.tipo_material === 'miscelaneo');
+    const seriados = todos.filter(b => b.tipo_material !== 'miscelaneo');
+
+    window._misBodegaItems = { misc, series: seriados };
 
     const optsItems = [
-        ...misc.map(m => {
-            const a = m.articulos || {};
-            const u = a.unidad_medida || 'und';
-            return `<option value="misc-${m.id}"
-                data-max="${m.cantidad_disponible}"
+        ...misc.map(b => {
+            const u = b.unidad || 'und';
+            return `<option value="misc-${b.id}"
+                data-max="${b.cantidad || 0}"
                 data-tipo="misc"
-                data-inv-id="${m.id}"
-                data-art-id="${a.id||''}"
-                data-nombre="${esc(a.nombre||'')}"
+                data-inv-id="${b.id}"
+                data-art-id="${b.id}"
+                data-nombre="${esc(b.nombre || b.articulo || '')}"
                 data-unidad="${esc(u)}">
-                ${esc(a.nombre||'Sin nombre')} — Mi stock: ${m.cantidad_disponible} ${u}
+                ${esc(b.nombre || b.articulo || 'Sin nombre')} — Mi stock: ${b.cantidad || 0} ${u}
             </option>`;
         }),
-        ...series.map(s => {
-            const a = s.articulos || {};
-            return `<option value="ser-${s.id}"
+        ...seriados.map(b => {
+            return `<option value="ser-${b.id}"
                 data-max="1"
                 data-tipo="seriado"
-                data-serie-id="${s.id}"
-                data-art-id="${a.id||''}"
-                data-nombre="${esc(a.nombre||'')}"
-                data-serie="${esc(s.numero_serie||'')}"
+                data-serie-id="${b.id}"
+                data-art-id="${b.id}"
+                data-nombre="${esc(b.nombre || b.articulo || '')}"
+                data-serie="${esc(b.serie || '')}"
                 data-unidad="und">
-                ${esc(a.nombre||'Sin nombre')} — Serie: ${esc(s.numero_serie||'—')}
+                ${esc(b.nombre || b.articulo || 'Sin nombre')} — Serie: ${esc(b.serie || '—')}
             </option>`;
         }),
     ].join('') || '<option value="" disabled>No tienes material en tu bodega personal</option>';
@@ -5165,7 +5171,7 @@ async function abrirDescargos() {
                         </div>
                     </div>
                     <div class="field">
-                        <label>DIRECCIÓN DEL CLIENTE</label>
+                        <label>CLIENTE / DIRECCIÓN</label>
                         <input type="text" id="desc-destino"
                             placeholder="Dirección de la instalación" />
                     </div>
@@ -5174,11 +5180,10 @@ async function abrirDescargos() {
                         <textarea id="desc-notas" rows="3"
                             placeholder="Tipo de instalación, observaciones técnicas…"></textarea>
                     </div>
-
                 </div>
                 <div id="descargo-footer">
                     <button type="button" class="btn-ghost-sm"
-                        onclick="confirmarCierreDescargo()">Cancelar</button>
+                        onclick="cargarMisArticulos()">Cancelar</button>
                     <button type="submit" class="btn-guardar-final" id="btnGuardarDescargo">
                         📦 Finalizar Descargo
                     </button>
@@ -5187,9 +5192,7 @@ async function abrirDescargos() {
 
         requestAnimationFrame(() => {
             const btn = document.getElementById('btnGuardarDescargo');
-            if (btn) {
-                btn.style.cssText = 'display:inline-flex !important;visibility:visible !important;opacity:1 !important;';
-            }
+            if (btn) btn.style.cssText = 'display:inline-flex !important;visibility:visible !important;opacity:1 !important;';
         });
     }
 }
