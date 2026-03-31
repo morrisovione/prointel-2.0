@@ -2732,44 +2732,40 @@ async function verFacturaSalida(id) {
         </div>`);
 
     try {
-        // 1. Obtener el registro de registros_salida
+        // 1. Obtener el registro
         let registro = (cacheSalidas || []).find(x => String(x.id) === String(id));
-
         if (!registro) {
             const { data, error } = await window.supabase
                 .from('registros_salida')
                 .select('id, correlativo, articulo_id, tecnico_id, cantidad, fecha, firma, nombre_articulo')
                 .eq('id', id)
                 .maybeSingle();
-            if (error) throw new Error('Error al buscar registro: ' + error.message);
+            if (error) throw new Error(error.message);
             if (!data)  throw new Error('Registro no encontrado.');
             registro = data;
         }
 
-        // 2. Enriquecer artículo — primero FK, luego nombre_articulo, luego bodega
+        // 2. Resolver nombre del artículo — FK → nombre_articulo → bodega
         let artNombre = registro.nombre_articulo || '—';
         let artCodigo = '';
         let artUnidad = 'und';
+        let artCategoria = '';
 
         if (registro.articulo_id) {
-            const { data: artData } = await window.supabase
+            const { data: artFK } = await window.supabase
                 .from('articulos')
-                .select('nombre, codigo, unidad_medida')
+                .select('nombre, codigo, unidad_medida, categoria')
                 .eq('id', registro.articulo_id)
                 .maybeSingle();
-            if (artData) {
-                artNombre = artData.nombre || artNombre;
-                artCodigo = artData.codigo || '';
-                artUnidad = artData.unidad_medida || 'und';
+            if (artFK) {
+                artNombre    = artFK.nombre        || artNombre;
+                artCodigo    = artFK.codigo        || '';
+                artUnidad    = artFK.unidad_medida || 'und';
+                artCategoria = artFK.categoria     || '';
             }
         }
 
-        // Si aún no tiene nombre, buscar en bodega por nombre_articulo
-        if (artNombre === '—' && registro.nombre_articulo) {
-            artNombre = registro.nombre_articulo;
-        }
-
-        // 3. Obtener técnico
+        // 3. Resolver nombre del técnico
         let tecNombre = '—';
         if (registro.tecnico_id) {
             const { data: tec } = await window.supabase
@@ -2780,25 +2776,28 @@ async function verFacturaSalida(id) {
             if (tec) tecNombre = tec.nombre_completo || tec.usuario || '—';
         }
 
-        const fecha = registro.fecha
+        const fechaStr = registro.fecha
             ? new Date(registro.fecha).toLocaleDateString('es-SV', {
-                weekday: 'long', day: '2-digit', month: 'long', year: 'numeric'
+                weekday:'long', day:'2-digit', month:'long', year:'numeric'
               })
             : '—';
 
         const firmaHTML = registro.firma
             ? `<div class="mfs-firma">
                    <div class="mfs-firma-label">Firma de recibido</div>
-                   <img src="${registro.firma}" class="mfs-firma-img" />
+                   <img src="${registro.firma}" class="mfs-firma-img"
+                        alt="Firma del técnico" />
                </div>`
             : `<div class="mfs-firma">
                    <div class="mfs-firma-label">Firma de recibido</div>
                    <div class="mfs-firma-linea"></div>
+                   <div style="font-size:.7rem;color:var(--dim);margin-top:.3rem">Sin firma capturada</div>
                </div>`;
 
         document.getElementById('mfs-body').innerHTML = `
             <div id="mfs-printable">
 
+                <!-- Encabezado -->
                 <div class="mfs-head">
                     <div>
                         <div class="mfs-brand">PRO<span>INTEL</span></div>
@@ -2806,47 +2805,71 @@ async function verFacturaSalida(id) {
                     </div>
                     <div class="mfs-head-right">
                         <div class="mfs-tipo-badge">SALIDA DE INVENTARIO</div>
-                        <div class="mfs-correlativo">#${registro.correlativo || id}</div>
-                        <div class="mfs-fecha">${fecha}</div>
+                        <div class="mfs-correlativo">#${registro.correlativo || '—'}</div>
+                        <div class="mfs-fecha">${fechaStr}</div>
                     </div>
                 </div>
 
+                <!-- Info técnico y correlativo -->
                 <div class="mfs-info-grid">
                     <div class="mfs-info-card">
-                        <div class="mfs-info-label">Técnico que recibe</div>
+                        <div class="mfs-info-label">Recibido por</div>
                         <div class="mfs-info-val">${esc(tecNombre)}</div>
                     </div>
                     <div class="mfs-info-card">
+                        <div class="mfs-info-label">Entregado por</div>
+                        <div class="mfs-info-val">Bodega Central</div>
+                    </div>
+                    <div class="mfs-info-card">
                         <div class="mfs-info-label">Correlativo</div>
-                        <div class="mfs-info-val" style="font-family:var(--font-mono)">
+                        <div class="mfs-info-val" style="font-family:var(--font-mono);font-size:1.1rem">
                             #${registro.correlativo || '—'}
                         </div>
                     </div>
+                    <div class="mfs-info-card">
+                        <div class="mfs-info-label">Fecha</div>
+                        <div class="mfs-info-val">${fechaStr.split(',').slice(-1)[0]?.trim() || '—'}</div>
+                    </div>
                 </div>
 
+                <!-- Tabla de artículos -->
                 <table class="mfs-tabla">
                     <thead>
                         <tr>
+                            <th>#</th>
                             <th>Artículo / Material</th>
                             <th>Código</th>
-                            <th style="text-align:center">Cantidad</th>
+                            <th style="text-align:center">Cant.</th>
                             <th style="text-align:center">Unidad</th>
+                            <th>Categoría</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr>
+                            <td class="row-num">1</td>
                             <td class="td-bold">${esc(artNombre)}</td>
-                            <td><code style="font-size:.82rem">${esc(artCodigo || '—')}</code></td>
+                            <td><code style="font-size:.82rem;font-family:var(--font-mono)">
+                                ${esc(artCodigo || '—')}
+                            </code></td>
                             <td style="text-align:center;font-weight:700;font-family:var(--font-mono)">
                                 ${registro.cantidad || 1}
                             </td>
-                            <td style="text-align:center;color:var(--dim)">${esc(artUnidad)}</td>
+                            <td style="text-align:center;color:var(--dim)">
+                                ${esc(artUnidad)}
+                            </td>
+                            <td>
+                                <span class="tipo-badge ${artCategoria === 'SERIADO' ? 'tipo-seriado' : 'tipo-cantidad'}"
+                                    style="font-size:.65rem">
+                                    ${esc(artCategoria || 'MATERIAL')}
+                                </span>
+                            </td>
                         </tr>
                     </tbody>
                 </table>
 
                 ${firmaHTML}
 
+                <!-- Pie de página -->
                 <div class="mfs-footer">
                     <span>PROINTEL 2.0 — Sistema de Gestión Residencial</span>
                     <span>Impreso el ${new Date().toLocaleDateString('es-SV')}</span>
@@ -2863,7 +2886,7 @@ async function verFacturaSalida(id) {
                     ${esc(err.message)}
                 </div>
                 <div style="font-size:.78rem;color:var(--dim);margin-top:.3rem">
-                    Revisa F12 → Console para más detalles.
+                    Abre F12 → Console para más detalles.
                 </div>
             </div>`;
     }
