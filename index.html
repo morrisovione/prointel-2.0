@@ -1,19 +1,34 @@
-<!-- Sección Bodega Técnico -->
-<div id="view-bodega-tecnico" class="view-section hidden">
-    <div class="container-bodega">
+<!-- SECCIÓN BODEGA TÉCNICO -->
+<section id="view-bodega-tecnico" class="view-section hidden">
+    <div class="bodega-container">
+        
+        <!-- HEADER -->
         <header class="bodega-header">
-            <h2>📦 Mi Inventario Asignado</h2>
-            <p class="tech-name">Responsable: <strong id="tech-name-display"></strong></p>
+            <div class="header-title">
+                <span class="icon">📦</span>
+                <h1>Mi Inventario Asignado</h1>
+            </div>
+            <p class="responsable-info">
+                Responsable: <strong id="tech-name-display">—</strong>
+            </p>
         </header>
-        
-        <div id="bodega-inventario" class="bodega-content">
-            <!-- Se rellena dinámicamente -->
-        </div>
-        
+
+        <!-- CONTENIDO PRINCIPAL -->
+        <main class="bodega-main">
+            <div id="bodega-inventario">
+                <!-- Se rellena con JavaScript -->
+            </div>
+        </main>
+
+        <!-- FOOTER -->
         <footer class="bodega-footer">
             <button class="btn btn-secondary" onclick="showSection('view-dashboard')">
-                ← Volver
+                ← Volver al Dashboard
+            </button>
+            <button class="btn btn-primary" onclick="cargarBodegaTecnico()">
+                🔄 Actualizar
             </button>
         </footer>
+
     </div>
-</div>
+</section>

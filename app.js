@@ -1,25 +1,56 @@
 // ══════════════════════════════════════════════
-// MÓDULO: BODEGA FILTRADA POR TÉCNICO
+// MÓDULO: BODEGA FILTRADA v2.0 (CON DEBUGGING)
 // ══════════════════════════════════════════════
 
-// ── Cargar Inventario del Técnico ──────────────
-async function cargarBodegaTecnico() {
-    if (!currentUser || !currentUser.nombre) {
-        console.warn('❌ Usuario no autenticado');
-        return;
+// ── PASO 0: Validar Usuario ───────────────────
+function validarUsuarioActivo() {
+    console.log('🔍 Validando usuario...', currentUser);
+    
+    if (!currentUser) {
+        console.error('❌ NO hay usuario en sesión');
+        alert('⚠️ Sesión expirada. Por favor, inicia sesión de nuevo.');
+        showSection('view-landing');
+        return false;
     }
+    
+    if (!currentUser.nombre) {
+        console.error('❌ Usuario sin propiedad "nombre"', currentUser);
+        alert('⚠️ Datos de usuario incompletos.');
+        return false;
+    }
+    
+    console.log(`✅ Usuario válido: ${currentUser.nombre}`);
+    return true;
+}
+
+// ── PASO 1: Cargar Bodega Técnico (MEJORADO) ──
+async function cargarBodegaTecnico() {
+    // Validar
+    if (!validarUsuarioActivo()) return;
 
     try {
-        console.log(`📦 Cargando bodega para: ${currentUser.nombre}`);
+        const nombreTecnico = currentUser.nombre.trim();
+        console.log(`📦 INICIANDO: Cargando bodega para técnico: "${nombreTecnico}"`);
         
-        // 1. Consultar bodega filtrada por responsable (técnico)
-        const { data: bodegaData, error: errorBodega } = await supabase
+        // Mostrar loading
+        const contenedor = document.getElementById('bodega-inventario');
+        if (contenedor) {
+            contenedor.innerHTML = '<p>⏳ Cargando inventario...</p>';
+        }
+        
+        // Mostrar nombre del técnico
+        const techDisplay = document.getElementById('tech-name-display');
+        if (techDisplay) techDisplay.textContent = nombreTecnico;
+
+        // Consulta a Supabase
+        const { data, error, status } = await supabase
             .from('bodega')
             .select(`
                 id,
                 cantidad,
                 responsable,
                 serie,
+                articulo_id,
                 articulos:articulo_id (
                     id,
                     nombre,
@@ -27,45 +58,84 @@ async function cargarBodegaTecnico() {
                     categoria
                 )
             `)
-            .eq('responsable', currentUser.nombre)
-            .order('articulos(nombre)', { ascending: true });
+            .eq('responsable', nombreTecnico);
 
-        if (errorBodega) throw errorBodega;
+        console.log(`📊 Response Status: ${status}`);
+        console.log(`📊 Datos recibidos:`, data);
+        console.log(`❌ Error (si existe):`, error);
 
-        console.log(`✅ ${bodegaData.length} artículos encontrados`);
+        if (error) {
+            console.error('🔴 ERROR Supabase:', error.message);
+            throw error;
+        }
+
+        if (!data) {
+            console.warn('⚠️ No se recibieron datos');
+            renderizarBodegaTecnico([]);
+            return;
+        }
+
+        console.log(`✅ ÉXITO: ${data.length} artículos encontrados`);
         
-        // 2. Renderizar tabla de inventario
-        renderizarBodegaTecnico(bodegaData);
+        // Renderizar
+        renderizarBodegaTecnico(data);
         showSection('view-bodega-tecnico');
 
     } catch (error) {
-        console.error('❌ Error cargando bodega:', error.message);
-        alert('Error al cargar inventario. Intenta de nuevo.');
+        console.error('💥 ERROR FATAL:', error);
+        alert(`❌ Error: ${error.message}`);
+        
+        // Mostrar error en UI
+        const contenedor = document.getElementById('bodega-inventario');
+        if (contenedor) {
+            contenedor.innerHTML = `
+                <div class="error-box">
+                    <p>❌ Error al cargar bodega:</p>
+                    <code>${error.message}</code>
+                    <p style="font-size: 0.85rem; color: #999;">
+                        Abre la consola del navegador (F12) para más detalles.
+                    </p>
+                </div>
+            `;
+        }
     }
 }
 
-// ── Renderizar Tabla de Inventario ────────────
+// ── PASO 2: Renderizar Tabla (MEJORADO) ───────
 function renderizarBodegaTecnico(datos) {
+    console.log(`🎨 RENDERIZAR: ${datos.length} items`);
+    
     const contenedor = document.getElementById('bodega-inventario');
-    if (!contenedor) return;
+    if (!contenedor) {
+        console.error('❌ No encontré elemento #bodega-inventario');
+        return;
+    }
 
-    if (datos.length === 0) {
+    // Validar datos
+    if (!datos || datos.length === 0) {
+        console.warn('⚠️ Sin datos para mostrar');
         contenedor.innerHTML = `
             <div class="empty-state">
-                <p>📭 No hay artículos asignados</p>
+                <p>📭 No hay artículos asignados a este técnico</p>
+                <small>Verifica que el nombre en la BD coincida exactamente</small>
             </div>
         `;
         return;
     }
 
+    // Construir tabla
     let html = `
+        <div class="bodega-stats">
+            <p>📦 Total artículos: <strong>${datos.length}</strong></p>
+        </div>
+        
         <table class="tabla-bodega">
             <thead>
                 <tr>
                     <th>Código</th>
                     <th>Artículo</th>
                     <th>Categoría</th>
-                    <th>Cantidad</th>
+                    <th>Stock</th>
                     <th>Serie</th>
                     <th>Acciones</th>
                 </tr>
@@ -73,27 +143,29 @@ function renderizarBodegaTecnico(datos) {
             <tbody>
     `;
 
-    datos.forEach(item => {
-        const articulo = item.articulos;
+    datos.forEach((item, idx) => {
+        const articulo = item.articulos || {};
         const { id, cantidad, serie } = item;
+
+        console.log(`  ├─ Item ${idx}: ID=${id}, Cantidad=${cantidad}`);
 
         html += `
             <tr>
-                <td><code>${articulo?.codigo || 'N/A'}</code></td>
-                <td>${articulo?.nombre || 'Desconocido'}</td>
-                <td><span class="badge">${articulo?.categoria || 'S/C'}</span></td>
+                <td><code>${articulo.codigo || 'N/A'}</code></td>
+                <td>${articulo.nombre || 'Desconocido'}</td>
+                <td><span class="badge">${articulo.categoria || 'S/C'}</span></td>
                 <td class="cantidad-cell">
-                    <strong>${cantidad}</strong>
+                    <span class="stock-badge">${cantidad}</span>
                 </td>
-                <td>${serie || '—'}</td>
+                <td><small>${serie || '—'}</small></td>
                 <td>
                     <button class="btn-small btn-edit" 
                         onclick="editarBodegaItem(${id})">
-                        ✏️ Editar
+                        ✏️
                     </button>
                     <button class="btn-small btn-danger" 
-                        onclick="registrarSalida(${id}, '${articulo?.nombre}')">
-                        📤 Salida
+                        onclick="registrarSalida(${id}, '${articulo.nombre || 'Artículo'}')">
+                        📤
                     </button>
                 </td>
             </tr>
@@ -106,80 +178,95 @@ function renderizarBodegaTecnico(datos) {
     `;
 
     contenedor.innerHTML = html;
-    cacheInventario = datos; // 💾 Guardar en cache
+    cacheInventario = datos;
+    console.log(`✅ Tabla renderizada`);
 }
 
-// ── Registrar Salida de Artículo ───────────────
+// ── PASO 3: Registrar Salida (MEJORADO) ───────
 async function registrarSalida(bodegaId, nombreArticulo) {
-    const numeroOT = prompt(`Ingresa número de OT para "${nombreArticulo}":`);
+    console.log(`📤 SALIDA: bodegaId=${bodegaId}, artículo="${nombreArticulo}"`);
+    
+    // Obtener datos
+    const bodegaItem = cacheInventario.find(b => b.id === bodegaId);
+    if (!bodegaItem) {
+        console.error('❌ Artículo no encontrado en cache');
+        alert('Error: Artículo no encontrado');
+        return;
+    }
+
+    // Prompts
+    const numeroOT = prompt(`📋 Ingresa número de OT para:\n"${nombreArticulo}"`);
     if (!numeroOT) return;
 
-    const cantidadSalida = prompt('¿Cuántos artículos salen?');
-    if (!cantidadSalida || isNaN(cantidadSalida)) return;
+    const cantidadStr = prompt(`🎯 ¿Cuántas unidades salen?\n(Disponible: ${bodegaItem.cantidad})`);
+    if (!cantidadStr) return;
+
+    const cantidad = parseInt(cantidadStr);
+    if (isNaN(cantidad) || cantidad <= 0) {
+        alert('❌ Cantidad inválida');
+        return;
+    }
+
+    if (cantidad > bodegaItem.cantidad) {
+        alert(`❌ Solo hay ${bodegaItem.cantidad} unidades disponibles`);
+        return;
+    }
 
     try {
-        // 1. Obtener datos actuales
-        const bodegaItem = cacheInventario.find(b => b.id === bodegaId);
-        if (!bodegaItem) throw new Error('Artículo no encontrado');
+        console.log(`✍️ Registrando: ${cantidad} unidades, OT: ${numeroOT}`);
 
-        const cantidadActual = bodegaItem.cantidad;
-        const cantidadNueva = cantidadActual - parseInt(cantidadSalida);
-
-        if (cantidadNueva < 0) {
-            alert('❌ No hay cantidad suficiente en bodega');
-            return;
-        }
-
-        // 2. Registrar salida
-        const { error: errorSalida } = await supabase
+        // 1. Registrar salida
+        const { error: errSalida } = await supabase
             .from('registros_salida')
             .insert({
                 numero_ot: numeroOT,
-                articulo_id: bodegaItem.articulos.id,
-                cantidad: parseInt(cantidadSalida),
-                tecnico_id: currentUser.id,
+                articulo_id: bodegaItem.articulo_id,
+                cantidad: cantidad,
+                tecnico_id: currentUser.id || currentUser.usuario,
                 despachado_por: currentUser.nombre
             });
 
-        if (errorSalida) throw errorSalida;
+        if (errSalida) throw errSalida;
+        console.log('✅ Salida registrada en BD');
 
-        // 3. Actualizar cantidad en bodega
-        const { error: errorUpdate } = await supabase
+        // 2. Actualizar cantidad
+        const cantidadNueva = bodegaItem.cantidad - cantidad;
+        const { error: errUpdate } = await supabase
             .from('bodega')
             .update({ cantidad: cantidadNueva })
             .eq('id', bodegaId);
 
-        if (errorUpdate) throw errorUpdate;
+        if (errUpdate) throw errUpdate;
+        console.log(`✅ Cantidad actualizada: ${bodegaItem.cantidad} → ${cantidadNueva}`);
 
-        console.log(`✅ Salida registrada: ${cantidadSalida} unidades`);
-        alert(`✅ ${cantidadSalida} artículos despachados (Nueva cantidad: ${cantidadNueva})`);
-        
-        // 4. Recargar tabla
-        cargarBodegaTecnico();
+        alert(`✅ Salida registrada!\n${cantidad} unidades despachadas.\nNuevo stock: ${cantidadNueva}`);
+        cargarBodegaTecnico(); // Recargar
 
     } catch (error) {
-        console.error('❌ Error registrando salida:', error.message);
-        alert('Error al registrar salida. Intenta de novo.');
+        console.error('💥 Error en salida:', error);
+        alert(`❌ Error: ${error.message}`);
     }
 }
 
-// ── Editar Item de Bodega (ejemplo básico) ────
+// ── PASO 4: Editar Item ───────────────────────
 function editarBodegaItem(bodegaId) {
     const item = cacheInventario.find(b => b.id === bodegaId);
     if (!item) return;
 
     const nuevaCantidad = prompt(
-        `Actualizar cantidad de "${item.articulos.nombre}"\nActual: ${item.cantidad}`,
+        `Actualizar: ${item.articulos?.nombre}\nStock actual: ${item.cantidad}`,
         item.cantidad
     );
 
     if (nuevaCantidad === null || isNaN(nuevaCantidad)) return;
-
+    
     actualizarCantidadBodega(bodegaId, parseInt(nuevaCantidad));
 }
 
 async function actualizarCantidadBodega(bodegaId, nuevaCantidad) {
     try {
+        console.log(`🔄 Actualizando bodegaId=${bodegaId} → cantidad=${nuevaCantidad}`);
+
         const { error } = await supabase
             .from('bodega')
             .update({ cantidad: nuevaCantidad })
@@ -187,11 +274,12 @@ async function actualizarCantidadBodega(bodegaId, nuevaCantidad) {
 
         if (error) throw error;
 
-        console.log(`✅ Cantidad actualizada`);
+        console.log('✅ Cantidad actualizada en BD');
+        alert('✅ Cantidad actualizada');
         cargarBodegaTecnico();
 
     } catch (error) {
-        console.error('❌ Error actualizando:', error.message);
-        alert('Error al actualizar cantidad.');
+        console.error('💥 Error:', error);
+        alert(`❌ Error: ${error.message}`);
     }
 }
