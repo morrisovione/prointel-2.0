@@ -3404,10 +3404,26 @@ async function buscarArticuloSalida(q) {
                 );
 
                 const itemsArt = arts.map(a => {
+                    // unidad: bodega usa 'unidad', articulos usa 'unidad_medida'
+                    const unidad = a.unidad_medida || a.unidad || 'und';
+                    // categoria: bodega usa tipo_material, articulos usa categoria
+                    const cat    = a.categoria || (
+                        (!a.tipo_material || a.tipo_material === 'seriado') ? 'SERIADO' : 'MISCELANEO'
+                    );
+                    // cantidad: solo misceláneos la tienen (bodega.cantidad)
+                    const qty    = a.cantidad ?? 0;
+                    console.log('Artículo en sugerencia:', a.nombre, '| cantidad:', qty, '| categoria:', cat);
                     const iJSON = JSON.stringify({
-                        _tipo:'articulo', art_id:a.id, nombre:a.nombre,
-                        codigo:a.codigo, unidad:a.unidad_medida||'und',
-                        categoria:a.categoria, cantidad:a.cantidad ?? null,
+                        _tipo:      'articulo',
+                        _fuente:    a._fuente || 'bodega',
+                        _bodega_id: a._bodega_id || a.id,
+                        art_id:     a.art_id || a.id,
+                        nombre:     a.nombre || a.articulo || '—',
+                        codigo:     a.codigo  || '',
+                        unidad:     unidad,
+                        categoria:  cat,
+                        cantidad:   qty,
+                        tipo_material: a.tipo_material || null,
                     }).replace(/"/g,'&quot;');
                     return `<div class="sal-sug-item" tabindex="0"
                             onclick="seleccionarArticuloSalida(${iJSON})"
