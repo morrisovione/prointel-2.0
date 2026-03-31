@@ -2571,7 +2571,7 @@ async function cargarSalidas() {
         // Consulta con join FK — articulos(nombre,codigo) gracias al puente SQL
         let query = window.supabase
             .from('registros_salida')
-            .select('id, correlativo, articulo_id, tecnico_id, cantidad, fecha, firma, nombre_articulo, articulos(nombre, codigo, unidad_medida)')
+            .select('id, correlativo, articulo_id, tecnico_id, cantidad, fecha, firma, nombre_articulo, despachado_por, articulos(nombre, codigo, unidad_medida)')
             .order('correlativo', { ascending: false });
 
         if (esTec && currentUser?.id) {
@@ -2737,7 +2737,7 @@ async function verFacturaSalida(id) {
         if (!registro) {
             const { data, error } = await window.supabase
                 .from('registros_salida')
-                .select('id, correlativo, articulo_id, tecnico_id, cantidad, fecha, firma, nombre_articulo')
+                .select('id, correlativo, articulo_id, tecnico_id, cantidad, fecha, firma, nombre_articulo, despachado_por')
                 .eq('id', id)
                 .maybeSingle();
             if (error) throw new Error(error.message);
@@ -2818,7 +2818,9 @@ async function verFacturaSalida(id) {
                     </div>
                     <div class="mfs-info-card">
                         <div class="mfs-info-label">Entregado por</div>
-                        <div class="mfs-info-val">Bodega Central</div>
+                        <div class="mfs-info-val">
+                            ${esc(registro.despachado_por || 'Bodega Central')}
+                        </div>
                     </div>
                     <div class="mfs-info-card">
                         <div class="mfs-info-label">Correlativo</div>
@@ -3823,11 +3825,12 @@ async function guardarSalida(e) {
             return {
                 correlativo,
                 tecnico_id,
-                articulo_id: artId,
+                articulo_id:     artId,
                 nombre_articulo: item.nombre || item.articulo || null,
-                cantidad:    item.cantidad,
-                fecha:       ahora,
-                firma:       firma,
+                cantidad:        item.cantidad,
+                fecha:           ahora,
+                firma:           firma,
+                despachado_por:  currentUser?.nombre_completo || currentUser?.usuario || null,
             };
         });
 
@@ -4784,7 +4787,7 @@ async function cargarMisArticulos() {
 
     content.innerHTML = `
         <div class="module-header">
-            <h2>🎒 Mi Bodega</h2>
+            <h2>🎒 Bodega</h2>
             <div class="header-actions">
                 <span class="su-name-badge">${esc(currentUser.nombre_completo || currentUser.usuario)}</span>
                 <button class="btn-nav" onclick="cargarMisArticulos()">↺ Actualizar</button>
@@ -4964,7 +4967,7 @@ async function cargarMisArticulos() {
         ];
 
         if (!allItems.length) {
-            tbody.innerHTML = '<tr><td colspan="6" class="empty-row">No tienes materiales asignados en tu bodega personal.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" class="empty-row">Sin material asignado actualmente.</td></tr>';
         } else {
             tbody.innerHTML = allItems.map((item, idx) => {
                 const crit  = item._tipo === 'misc' && item.stock < 5;
@@ -5016,7 +5019,7 @@ async function cargarMisArticulos() {
                         ${artCodigo ? `<br><span style="font-size:.7rem;color:var(--dim)">${esc(artCodigo)}</span>` : ''}
                     </td>
                     <td style="font-family:var(--font-mono)">${h.cantidad || '—'} ${esc(unidad)}</td>
-                    <td style="font-size:.82rem;color:var(--dim)">Bodega Central</td>
+                    <td style="font-size:.82rem">${esc(h.despachado_por || 'Bodega Central')}</td>
                     <td class="td-date">${fecha}</td>
                     <td>
                         <button class="act-btn act-edit"
