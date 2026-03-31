@@ -46,7 +46,7 @@ async function handleLogin(event) {
         // Buscar usuario en BD
         const { data, error } = await supabase
             .from('usuarios')
-            .select('id, usuario, nombre_completo, clave, rol')
+            .select('id, usuario, clave, rol')
             .eq('usuario', username)
             .single();
 
@@ -62,13 +62,13 @@ async function handleLogin(event) {
         }
 
         // Login exitoso
-        currentUser = data.nombre_completo;
+        currentUser = data.usuario;
         userProfile = data.rol;
 
         // Mostrar datos en header
-        document.getElementById('userName').textContent = data.nombre_completo;
-        document.getElementById('userAvatar').textContent = data.nombre_completo.charAt(0).toUpperCase();
-        document.getElementById('greeting').textContent = `Bienvenido, ${data.nombre_completo}`;
+        document.getElementById('userName').textContent = data.usuario;
+        document.getElementById('userAvatar').textContent = data.usuario.charAt(0).toUpperCase();
+        document.getElementById('greeting').textContent = `Bienvenido, ${data.usuario}`;
 
         // Asignar permisos según rol
         if (data.rol === 'admin') {
@@ -150,7 +150,6 @@ async function handleCreateUser(event) {
             .from('usuarios')
             .insert({
                 usuario: username,
-                nombre_completo: username,
                 clave: password,
                 rol: rol
             })
