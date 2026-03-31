@@ -4,75 +4,217 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PROINTEL 2.0 - Gestión de Inventario</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="styles.css">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
+    <!-- HEADER PRINCIPAL -->
     <header class="main-header">
-        <div class="logo">PROINTEL 2.0</div>
+        <div class="logo">
+            <span class="logo-icon">📦</span>
+            <span>PROINTEL 2.0</span>
+        </div>
         <div class="header-info">
             <span id="clock-display">00:00:00</span>
             <span id="user-display">Invitado</span>
+            <button class="btn-logout" onclick="logout()" style="display: none;" id="btn-logout">🚪 Salir</button>
         </div>
     </header>
 
+    <!-- CONTENIDO PRINCIPAL -->
     <main id="app-content">
+
+        <!-- ═══════════════════════════════════════════ -->
+        <!-- SECCIÓN: LANDING (LOGIN) -->
+        <!-- ═══════════════════════════════════════════ -->
         <section id="view-landing" class="view-section">
             <div class="login-card">
-                <h2>Iniciar Sesión</h2>
-                <button onclick="simularLogin()">Entrar como Técnico</button>
+                <div class="login-header">
+                    <h2>🔐 PROINTEL 2.0</h2>
+                    <p>Sistema de Gestión de Inventario</p>
+                </div>
+                
+                <div class="login-body">
+                    <p style="color: #aaa; margin-bottom: 1.5rem; font-size: 0.9rem;">
+                        Bienvenido al sistema de bodega técnica. Inicia sesión para continuar.
+                    </p>
+                    
+                    <button class="btn-login" onclick="simularLogin()">
+                        👤 Entrar como Técnico
+                    </button>
+                    
+                    <p style="color: #666; margin-top: 1.5rem; font-size: 0.85rem; text-align: center;">
+                        Versión 2.0 | Base de datos sincronizada
+                    </p>
+                </div>
             </div>
         </section>
 
+        <!-- ═══════════════════════════════════════════ -->
+        <!-- SECCIÓN: DASHBOARD -->
+        <!-- ═══════════════════════════════════════════ -->
         <section id="view-dashboard" class="view-section hidden">
-            <div class="menu-grid">
-                <button class="menu-btn" onclick="showSection('view-bodega'); cargarMiBodega();">
-                    📦 MI BODEGA
-                </button>
-                <button class="menu-btn" onclick="alert('Módulo en desarrollo')">
-                    📋 SERVICIOS
-                </button>
+            <div class="dashboard-container">
+                <div class="dashboard-welcome">
+                    <h2>📊 Bienvenido al Dashboard</h2>
+                    <p>Selecciona una opción para continuar</p>
+                </div>
+
+                <div class="menu-grid">
+                    <button class="menu-btn" onclick="cargarMiBodega()">
+                        <div class="menu-icon">📦</div>
+                        <div class="menu-title">MI BODEGA</div>
+                        <div class="menu-desc">Ver inventario asignado</div>
+                    </button>
+
+                    <button class="menu-btn" onclick="alert('📋 Módulo de OTs — Próximamente')">
+                        <div class="menu-icon">📋</div>
+                        <div class="menu-title">ÓRDENES TÉCNICAS</div>
+                        <div class="menu-desc">Gestionar mis OTs</div>
+                    </button>
+
+                    <button class="menu-btn" onclick="alert('📊 Reportes — Próximamente')">
+                        <div class="menu-icon">📊</div>
+                        <div class="menu-title">REPORTES</div>
+                        <div class="menu-desc">Historial de salidas</div>
+                    </button>
+
+                    <button class="menu-btn" onclick="logout()" style="background: #c62828;">
+                        <div class="menu-icon">🚪</div>
+                        <div class="menu-title">CERRAR SESIÓN</div>
+                        <div class="menu-desc">Salir del sistema</div>
+                    </button>
+                </div>
             </div>
         </section>
 
+        <!-- ═══════════════════════════════════════════ -->
+        <!-- SECCIÓN: BODEGA -->
+        <!-- ═══════════════════════════════════════════ -->
         <section id="view-bodega" class="view-section hidden">
-            <div class="section-header">
-                <button class="btn-back" onclick="showSection('view-dashboard')">⬅ Volver</button>
-                <h2>Mi Inventario Actual</h2>
-            </div>
+            <div class="bodega-container">
+                
+                <!-- HEADER DE BODEGA -->
+                <div class="section-header">
+                    <button class="btn-back" onclick="showSection('view-dashboard')">
+                        ⬅ Volver al Dashboard
+                    </button>
+                    <h2>📦 Mi Inventario Asignado</h2>
+                </div>
 
-            <div class="tables-container">
-                <h3>Equipos Seriados</h3>
-                <table>
-                    <thead><tr><th>Nombre</th><th>Código</th><th>Serie</th><th>Cant</th></tr></thead>
-                    <tbody id="tabla-seriados-body"></tbody>
-                </table>
+                <!-- CONTENIDO DE BODEGA -->
+                <div class="bodega-content">
 
-                <h3>Material Misceláneo</h3>
-                <table>
-                    <thead><tr><th>Nombre</th><th>Código</th><th>Cant</th></tr></thead>
-                    <tbody id="tabla-misc-body"></tbody>
-                </table>
-            </div>
+                    <!-- EQUIPOS SERIADOS -->
+                    <div class="bodega-section">
+                        <h3>⚙️ Equipos Seriados</h3>
+                        <div class="table-wrapper">
+                            <table class="bodega-table">
+                                <thead>
+                                    <tr>
+                                        <th>Nombre</th>
+                                        <th>Código</th>
+                                        <th>Serie</th>
+                                        <th>Cantidad</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tabla-seriados-body">
+                                    <tr><td colspan="4" style="text-align: center; color: #999;">Cargando...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
 
-            <div class="history-container">
-                <h3>Historial de Entregas</h3>
-                <table>
-                    <thead><tr><th>Fecha</th><th>OT</th><th>Producto</th><th>Cant</th><th>Acción</th></tr></thead>
-                    <tbody id="historial-entregas-body"></tbody>
-                </table>
+                    <!-- MATERIAL MISCELÁNEO -->
+                    <div class="bodega-section">
+                        <h3>📦 Material Misceláneo</h3>
+                        <div class="table-wrapper">
+                            <table class="bodega-table">
+                                <thead>
+                                    <tr>
+                                        <th>Nombre</th>
+                                        <th>Código</th>
+                                        <th>Cantidad</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tabla-misc-body">
+                                    <tr><td colspan="3" style="text-align: center; color: #999;">Cargando...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- HISTORIAL DE ENTREGAS -->
+                    <div class="bodega-section">
+                        <h3>📋 Historial de Entregas</h3>
+                        <div class="table-wrapper">
+                            <table class="bodega-table">
+                                <thead>
+                                    <tr>
+                                        <th>Fecha</th>
+                                        <th>OT</th>
+                                        <th>Producto</th>
+                                        <th>Cantidad</th>
+                                        <th>Técnico</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="historial-entregas-body">
+                                    <tr><td colspan="5" style="text-align: center; color: #999;">Sin registros</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- FOOTER DE BODEGA -->
+                <div class="bodega-footer">
+                    <button class="btn-back" onclick="showSection('view-dashboard')">
+                        ← Volver
+                    </button>
+                    <button class="btn-refresh" onclick="cargarMiBodega()">
+                        🔄 Actualizar
+                    </button>
+                </div>
+
             </div>
         </section>
+
     </main>
 
+    <!-- MODAL PARA DETALLES DE FACTURA (FUTURO) -->
     <div id="modal-factura" class="modal hidden">
         <div class="modal-content">
             <span class="close-btn" onclick="document.getElementById('modal-factura').classList.add('hidden')">&times;</span>
+            <h2>📄 Detalle de Factura</h2>
             <div id="factura-detalle"></div>
             <button class="btn-print" onclick="window.print()">🖨️ Imprimir Ticket</button>
         </div>
     </div>
 
+    <!-- SCRIPTS -->
     <script src="app.js"></script>
+    
+    <!-- Script para controlar visibilidad del botón logout -->
+    <script>
+        // Mostrar/ocultar botón logout cuando hay sesión
+        const observer = new MutationObserver(() => {
+            const btnLogout = document.getElementById('btn-logout');
+            const viewDashboard = document.getElementById('view-dashboard');
+            if (currentUser && !viewDashboard.classList.contains('hidden')) {
+                btnLogout.style.display = 'block';
+            } else {
+                btnLogout.style.display = 'none';
+            }
+        });
+        
+        observer.observe(document.body, { 
+            childList: true, 
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['class']
+        });
+    </script>
+
 </body>
 </html>
