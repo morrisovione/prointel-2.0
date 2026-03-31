@@ -5085,6 +5085,7 @@ async function cargarMisArticulos() {
         const histTbody = document.getElementById('hist-tbody');
         const histCount = document.getElementById('hist-count');
 
+        console.log('PROINTEL — renderizando historial, filas:', hist.length, hist.map(h=>h.nombre_articulo));
         if (!hist.length) {
             histTbody.innerHTML =
                 '<tr><td colspan="7" class="empty-row">No tienes entregas registradas aún.</td></tr>';
