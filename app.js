@@ -3276,7 +3276,7 @@ async function buscarArticuloSalida(q) {
                 const [resArt, resBodega] = await Promise.all([
                     window.supabase
                         .from('articulos')
-                        .select('id, codigo, nombre, categoria, unidad_medida, cantidad')
+                        .select('id, codigo, nombre, categoria, unidad_medida')
                         .or(`nombre.ilike.%${qClean}%,codigo.ilike.%${qClean}%`)
                         .limit(12),
                     window.supabase
@@ -3401,7 +3401,7 @@ async function buscarArticuloSalida(q) {
                     const iJSON = JSON.stringify({
                         _tipo:'articulo', art_id:a.id, nombre:a.nombre,
                         codigo:a.codigo, unidad:a.unidad_medida||'und',
-                        categoria:a.categoria, cantidad:null,
+                        categoria:a.categoria, cantidad:a.cantidad ?? null,
                     }).replace(/"/g,'&quot;');
                     return `<div class="sal-sug-item" tabindex="0"
                             onclick="seleccionarArticuloSalida(${iJSON})"
