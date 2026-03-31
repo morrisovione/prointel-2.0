@@ -3333,15 +3333,22 @@ async function buscarArticuloSalida(q) {
                     };
                 });
 
-                // Combinar sin duplicados por código
+                // Priorizar bodega (tiene cantidad real) sobre catálogo articulos
+                // Si un item existe en bodega, no mostrar el de articulos
+                const codigosBodega = new Set(deBodega.map(b => (b.codigo||'').toLowerCase()));
+                const soloArticulos = deArticulos.filter(a =>
+                    !codigosBodega.has((a.codigo||'').toLowerCase())
+                );
+
+                // Combinar: bodega primero, luego articulos sin duplicado
                 const vistos  = new Set();
-                const artData = [...deArticulos, ...deBodega].filter(a => {
+                const artData = [...deBodega, ...soloArticulos].filter(a => {
                     const key = (a.codigo || a.nombre || '').toLowerCase();
                     if (vistos.has(key)) return false;
                     vistos.add(key);
                     return true;
                 });
-                const artErr2 = null; // ya manejado arriba
+                const artErr2 = null;
 
                 // Buscar series disponibles
                 const { data: serData, error: serErr } = await window.supabase
@@ -3467,9 +3474,7 @@ async function buscarArticuloSalida(q) {
     }
 }
 
-function seleccionarArticuloSalida(item) {
-    _articuloSeleccionado = item;
-
+async function seleccionarArticuloSalida(item) {
     const buscarEl = document.getElementById('sal-articulo-buscar');
     const sugEl    = document.getElementById('sal-sugerencias');
     const stockEl  = document.getElementById('sal-stock-badge');
@@ -3484,32 +3489,62 @@ function seleccionarArticuloSalida(item) {
     if (sugEl)    sugEl.classList.add('hidden');
     if (btnX)     btnX.style.display = 'none';
 
-    // ── Normalizar cantidad ──────────────────────────────────
-    // Puede llegar como: cantidad (bodega), cant (alias), stock, o null
-    const stockReal = item.cantidad ?? item.cant ?? item.stock ?? 0;
-    item.cantidad   = Number(stockReal) || 0;
+    // Si el item viene del catálogo articulos sin cantidad real,
+    // buscar el stock sumando bodega por código o nombre
+    if (!item.cantidad && item._fuente === 'articulos') {
+        try {
+            const filtro = item.codigo
+                ? `codigo.eq.${item.codigo}`
+                : `nombre.ilike.${item.nombre}`;
+            const { data: bd } = await window.supabase
+                .from('bodega')
+                .select('id, cantidad, tipo_material, unidad, estado, asignado_a')
+                .or(filtro)
+                .ilike('estado', 'disponible')
+                .is('asignado_a', null);
 
-    // ── Detectar tipo de artículo ─────────────────────────────
-    // Compatible con: categoria (esquema nuevo), tipo_material (bodega vieja)
+            if (bd && bd.length > 0) {
+                // Sumar cantidades disponibles de todos los registros
+                item.cantidad    = bd.reduce((s, r) => s + (Number(r.cantidad) || 0), 0);
+                item.tipo_material = bd[0].tipo_material || null;
+                item.unidad      = bd[0].unidad || item.unidad || 'und';
+                item._bodega_ids = bd.map(r => r.id); // guardar todos los IDs
+                item._fuente     = 'bodega_lookup';
+            }
+        } catch (e) {
+            console.warn('PROINTEL — lookup bodega:', e.message);
+        }
+    }
+
+    // Normalizar cantidad — siempre usar el campo "cantidad"
+    item.cantidad = Number(item.cantidad ?? 0);
+
+    // Detectar tipo: categoria (articulos) o tipo_material (bodega)
     const cat    = (item.categoria || item.tipo_material || '').toUpperCase().trim();
-    const esMisc = cat === 'MISCELANEO' || cat === 'MISCELÁNEOS' || cat === 'MISCELÁNEO';
+    const esMisc = cat === 'MISCELANEO'  ||
+                   cat === 'MISCELÁNEOS' ||
+                   cat === 'MISCELÁNEO'  ||
+                   cat === 'MISCELANEOUS';
     const esSer  = !esMisc;
 
-    // ── LOG de diagnóstico ────────────────────────────────────
+    // Guardar en global con tipo resuelto
+    item._esMisc = esMisc;
+    _articuloSeleccionado = item;
+
     console.log('▶ Artículo seleccionado:', {
-        nombre:    item.nombre,
+        nombre:   item.nombre,
         categoria: cat,
         esMisc,
         cantidad:  item.cantidad,
         unidad:    item.unidad || item.unidad_medida || 'und',
-        _fuente:   item._fuente || '?',
+        fuente:    item._fuente,
     });
 
-    // ── Badge de stock ────────────────────────────────────────
+    // Badge de stock
     const unidad = item.unidad || item.unidad_medida || 'und';
     if (stockEl) {
-        const ok   = esMisc ? item.cantidad > 0 : true;
-        const txt  = esMisc
+        const ok  = esMisc ? item.cantidad > 0 : true;
+        const txt = esMisc
             ? `Stock: ${item.cantidad.toLocaleString()} ${unidad}`
             : '1 unidad';
         stockEl.textContent    = txt;
@@ -3521,13 +3556,13 @@ function seleccionarArticuloSalida(item) {
             : '1px solid rgba(255,77,109,.3)';
     }
 
-    // ── Código interno ────────────────────────────────────────
+    // Código interno
     if (codWrap && codVal) {
         if (item.codigo) { codVal.textContent = item.codigo; codWrap.classList.remove('hidden'); }
         else               codWrap.classList.add('hidden');
     }
 
-    // ── Campo dinámico: serie o cantidad ──────────────────────
+    // Campo dinámico: número para misceláneos, texto para seriados
     if (esSer) {
         if (lblEl)   lblEl.innerHTML  = 'NÚMERO DE SERIE <span class="req">*</span>';
         if (badgeEl) { badgeEl.textContent = 'SERIADO'; badgeEl.className = 'tipo-badge tipo-seriado'; }
@@ -3619,10 +3654,13 @@ function agregarAlCarritoSalida() {
     }
 
     window._listaSalida = window._listaSalida || [];
+    // art_id: preferir el id de articulos (BIGINT) si existe, o null
+    // _bodega_id: el UUID/id de bodega para updates posteriores
+    const artIdFinal = item._art_id_bigint || null;
     window._listaSalida.push({
         _tipo:          esSer ? 'seriado' : 'misc',
-        art_id:         item.art_id || item.id,
-        _bodega_id:     item._bodega_id || item.id,
+        art_id:         artIdFinal,
+        _bodega_id:     item._bodega_id || item.art_id || item.id,
         nombre:         item.nombre || item.articulo || '—',
         codigo:         item.codigo || '',
         unidad:         item.unidad || item.unidad_medida || 'und',
@@ -3741,15 +3779,21 @@ async function guardarSalida(e) {
         const correlativo = (corrData?.correlativo || 0) + 1;
 
         // Insert masivo en registros_salida
+        // art_id puede ser UUID (de bodega) o BIGINT (de articulos)
+        // registros_salida.articulo_id es BIGINT — solo enviar si es número
         const ahora = new Date().toISOString();
-        const lote  = lista.map(item => ({
-            correlativo,
-            tecnico_id,
-            articulo_id: item.art_id,
-            cantidad:    item.cantidad,
-            fecha:       ahora,
-            firma:       firma,
-        }));
+        const lote  = lista.map(item => {
+            const artIdNum = Number(item.art_id);
+            const esNumero = !isNaN(artIdNum) && artIdNum > 0 && String(item.art_id) === String(artIdNum);
+            return {
+                correlativo,
+                tecnico_id,
+                articulo_id: esNumero ? artIdNum : null,
+                cantidad:    item.cantidad,
+                fecha:       ahora,
+                firma:       firma,
+            };
+        });
 
         const { error: errSal } = await window.supabase
             .from('registros_salida')
