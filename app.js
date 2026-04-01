@@ -463,7 +463,8 @@ function changeTab(tab) {
         salidas:      'Salida de Inventario',
         transferencia:'Transferencia de Inventario',
         reportes:     'Reportes',
-        usuarios:     'Gestión de Usuarios'
+        usuarios:            'Gestión de Usuarios',
+        'puestas-servicio':  'Puestas en Servicio',
     };
     const tEl = document.getElementById('topbar-title');
     if (tEl) tEl.textContent = titulos[tab] || tab;
@@ -489,7 +490,8 @@ function changeTab(tab) {
     if (tab === 'servicios')     cargarServicios();
     if (tab === 'importar')      cargarImportar();
     if (tab === 'articulos')     cargarArticulos();
-    if (tab === 'mis-articulos') cargarMisArticulos();
+    if (tab === 'mis-articulos')    cargarMisArticulos();
+    if (tab === 'puestas-servicio') cargarPuestasServicio();
     if (tab === 'bodega')        cargarInventarioBodega();
     if (tab === 'salidas')       cargarSalidas();
     if (tab === 'transferencia') cargarTransferencias();
@@ -4043,6 +4045,357 @@ async function guardarSalida(e) {
 }
 
 
+async function cargarPuestasServicio() {
+    const content = document.getElementById('dashboard-content');
+    content.innerHTML = `
+        <div class="module-header">
+            <h2>✅ Puestas en Servicio</h2>
+            <div class="header-actions">
+                <button class="btn-nav" onclick="cargarPuestasServicio()">↺ Actualizar</button>
+                <button class="btn-outline-sm" onclick="exportarPSExcel()">📊 Exportar Excel</button>
+            </div>
+        </div>
+        <div class="inv-stats" id="ps-stats">
+            <div class="istat loading-placeholder"></div>
+            <div class="istat loading-placeholder"></div>
+            <div class="istat loading-placeholder"></div>
+        </div>
+        <div class="inv-toolbar">
+            <div class="search-bar" style="flex:1">
+                <input type="text" id="ps-search"
+                    placeholder="🔍  Buscar por OT, técnico, cliente…"
+                    oninput="filtrarTabla('ps-search','tabla-ps')" />
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="data-table" id="tabla-ps">
+                <thead><tr>
+                    <th>#</th>
+                    <th>CORRELATIVO</th>
+                    <th>OT / SOLICITUD</th>
+                    <th>TÉCNICO</th>
+                    <th>MATERIALES</th>
+                    <th>CLIENTE</th>
+                    <th>FECHA</th>
+                    <th>VER</th>
+                </tr></thead>
+                <tbody id="ps-tbody">
+                    <tr><td colspan="8" class="empty-row">⏳ Cargando…</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="table-count" id="ps-count"></p>`;
+
+    try {
+        // Traer todas las instalaciones de todos los técnicos
+        const { data: todos, error } = await window.supabase
+            .from('registros_instalaciones')
+            .select('id, correlativo_descargo, tecnico_id, numero_ot, cliente, articulo_id, cantidad_usada, fecha')
+            .order('correlativo_descargo', { ascending: false });
+
+        if (error) throw error;
+        const rows = todos || [];
+
+        // Enriquecer artículos
+        const artIds = [...new Set(rows.map(r => r.articulo_id).filter(Boolean))];
+        const tecIds = [...new Set(rows.map(r => r.tecnico_id).filter(Boolean))];
+        let artMap = {}, tecMap = {};
+
+        const [resArts, resTecs] = await Promise.all([
+            artIds.length
+                ? window.supabase.from('articulos').select('id, nombre, codigo').in('id', artIds)
+                : Promise.resolve({ data: [] }),
+            tecIds.length
+                ? window.supabase.from('usuarios').select('id, nombre_completo, usuario').in('id', tecIds)
+                : Promise.resolve({ data: [] }),
+        ]);
+        (resArts.data||[]).forEach(a => { artMap[a.id] = a; });
+        (resTecs.data||[]).forEach(t => { tecMap[t.id] = t; });
+
+        const rowsRich = rows.map(r => ({
+            ...r,
+            artNombre: artMap[r.articulo_id]?.nombre || '—',
+            artCodigo: artMap[r.articulo_id]?.codigo || '',
+            tecNombre: tecMap[r.tecnico_id]?.nombre_completo || tecMap[r.tecnico_id]?.usuario || '—',
+        }));
+
+        window._puestasServicio = rowsRich;
+
+        // Agrupar por OT + técnico
+        const porOT = {};
+        rowsRich.forEach(r => {
+            const key = (r.numero_ot || r.correlativo_descargo) + '_' + (r.tecnico_id||'');
+            if (!porOT[key]) porOT[key] = {
+                correlativo: r.correlativo_descargo,
+                ot:          r.numero_ot || '—',
+                tecNombre:   r.tecNombre,
+                cliente:     r.cliente || '—',
+                fecha:       r.fecha,
+                items:       [],
+                _key:        key,
+            };
+            porOT[key].items.push(r);
+        });
+
+        const grupos = Object.values(porOT);
+        const totalMat = rows.length;
+        const totalTecs = new Set(rows.map(r => r.tecnico_id)).size;
+
+        document.getElementById('ps-stats').innerHTML = `
+            <div class="istat">
+                <span class="istat-num">${grupos.length}</span>
+                <span class="istat-label">Solicitudes</span>
+            </div>
+            <div class="istat istat-cyan">
+                <span class="istat-num">${totalMat}</span>
+                <span class="istat-label">Materiales usados</span>
+            </div>
+            <div class="istat istat-blue">
+                <span class="istat-num">${totalTecs}</span>
+                <span class="istat-label">Técnicos activos</span>
+            </div>`;
+
+        const tbody = document.getElementById('ps-tbody');
+        const count = document.getElementById('ps-count');
+
+        if (!grupos.length) {
+            tbody.innerHTML = '<tr><td colspan="8" class="empty-row">No hay puestas en servicio registradas.</td></tr>';
+            if (count) count.textContent = '';
+            return;
+        }
+
+        tbody.innerHTML = grupos.map((g, idx) => {
+            const fecha   = g.fecha
+                ? new Date(g.fecha).toLocaleDateString('es-SV')
+                : '—';
+            const nItems  = g.items.length;
+            const resumen = g.items.slice(0,2).map(i => esc(i.artNombre)).join(', ')
+                          + (nItems > 2 ? ` +${nItems-2} más` : '');
+            const key     = encodeURIComponent(g._key);
+            return `<tr>
+                <td class="row-num">${idx+1}</td>
+                <td><code class="sku-code">#${g.correlativo||'—'}</code></td>
+                <td style="font-family:var(--font-mono);font-weight:600">${esc(g.ot)}</td>
+                <td style="font-size:.84rem">${esc(g.tecNombre)}</td>
+                <td style="font-size:.82rem;color:var(--dim)">
+                    <span class="series-count-badge" style="margin-right:.3rem">${nItems}</span>
+                    ${resumen}
+                </td>
+                <td style="font-size:.82rem">${esc(g.cliente)}</td>
+                <td class="td-date">${fecha}</td>
+                <td>
+                    <button class="btn-cyan" style="font-size:.72rem;padding:.3rem .7rem"
+                        onclick="verPuestaServicio('${key}')">
+                        👁 Ver
+                    </button>
+                </td>
+            </tr>`;
+        }).join('');
+
+        if (count) count.textContent =
+            `${grupos.length} solicitud${grupos.length!==1?'es':''} · ${totalMat} material${totalMat!==1?'es':''}`;
+
+    } catch (err) {
+        console.error('PROINTEL — cargarPuestasServicio:', err);
+        document.getElementById('ps-tbody').innerHTML =
+            `<tr><td colspan="8" class="empty-row error-msg">❌ ${esc(err.message)}</td></tr>`;
+    }
+}
+
+async function verPuestaServicio(keyEncoded) {
+    const key  = decodeURIComponent(keyEncoded);
+    let source = window._puestasServicio || window._instaladas || [];
+    if (!source.length) {
+        await cargarPuestasServicio();
+        source = window._puestasServicio || [];
+    }
+
+    // Reconstruir la key para filtrar
+    const grupo = source.filter(r => {
+        const k = (r.numero_ot || r.correlativo_descargo) + '_' + (r.tecnico_id||'');
+        return k === key;
+    });
+
+    if (!grupo.length) { _notificar('No se encontraron detalles.'); return; }
+    document.getElementById('modal-ps-detalle')?.remove();
+
+    const g     = grupo[0];
+    const fecha = g.fecha ? new Date(g.fecha).toLocaleDateString('es-SV', {
+        weekday:'long', day:'2-digit', month:'long', year:'numeric'
+    }) : '—';
+
+    const artFilasHTML = grupo.map((r, i) => `
+        <tr class="ps-art-row">
+            <td class="row-num">${i+1}</td>
+            <td>
+                <input type="text" class="ps-input-serie"
+                    value="${esc(r.artCodigo||'')}" readonly
+                    placeholder="Serie" style="width:90px;font-family:var(--font-mono);font-size:.8rem" />
+            </td>
+            <td>
+                <input type="text" class="ps-input-codigo"
+                    value="${esc(r.artCodigo||'')}" readonly
+                    style="width:90px;font-family:var(--font-mono);font-size:.8rem" />
+            </td>
+            <td class="td-bold" style="min-width:180px">${esc(r.artNombre||'—')}</td>
+            <td style="text-align:center">
+                <input type="number" class="ps-input-cant"
+                    value="${r.cantidad_usada||1}" min="1"
+                    style="width:60px;text-align:center;font-weight:700" readonly />
+            </td>
+        </tr>`).join('');
+
+    document.body.insertAdjacentHTML('beforeend', `
+        <div class="modal-overlay" id="modal-ps-detalle" onclick="event.stopPropagation()">
+            <div class="modal-content" style="max-width:780px" onclick="event.stopPropagation()">
+
+                <div class="modal-head">
+                    <div class="modal-head-left">
+                        <span class="modal-icon">✅</span>
+                        <span>Solicitud: ${esc(g.numero_ot||'—')} — Técnico: ${esc(g.tecNombre||'—')}</span>
+                    </div>
+                    <button class="modal-close"
+                        onclick="document.getElementById('modal-ps-detalle').remove()">✕</button>
+                </div>
+
+                <div class="modal-body" id="ps-det-body">
+                    <div id="ps-det-printable">
+
+                        <!-- Info general -->
+                        <div class="mfs-info-grid" style="margin-bottom:1rem">
+                            <div class="mfs-info-card">
+                                <div class="mfs-info-label">Estado de solicitud</div>
+                                <div class="mfs-info-val">
+                                    <span class="badge badge-disponible">Completada / Cerrada</span>
+                                </div>
+                            </div>
+                            <div class="mfs-info-card">
+                                <div class="mfs-info-label">Técnico responsable</div>
+                                <div class="mfs-info-val">${esc(g.tecNombre||'—')}</div>
+                            </div>
+                            <div class="mfs-info-card">
+                                <div class="mfs-info-label">Cliente / Dirección</div>
+                                <div class="mfs-info-val">${esc(g.cliente||'—')}</div>
+                            </div>
+                            <div class="mfs-info-card">
+                                <div class="mfs-info-label">Fecha</div>
+                                <div class="mfs-info-val">${fecha}</div>
+                            </div>
+                        </div>
+
+                        <!-- Tabla de artículos estilo EUROCOMUNICACIONES -->
+                        <div style="font-weight:700;font-size:.85rem;color:var(--white);
+                                    margin-bottom:.6rem;display:flex;align-items:center;gap:.5rem">
+                            📦 Artículos de instalación
+                            <span class="series-count-badge">${grupo.length}</span>
+                        </div>
+
+                        <div class="table-wrap" style="max-height:340px;overflow-y:auto">
+                            <table class="data-table" style="font-size:.83rem">
+                                <thead><tr>
+                                    <th>#</th>
+                                    <th>SERIE</th>
+                                    <th>CÓDIGO</th>
+                                    <th>ARTÍCULO</th>
+                                    <th style="text-align:center">CANT.</th>
+                                </tr></thead>
+                                <tbody>${artFilasHTML}</tbody>
+                            </table>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="modal-foot">
+                    <button class="btn-ghost-sm"
+                        onclick="document.getElementById('modal-ps-detalle').remove()">
+                        Cancelar
+                    </button>
+                    <button class="btn-outline-sm"
+                        onclick="exportarGrupoExcel('${encodeURIComponent(key)}')">
+                        📊 Excel
+                    </button>
+                    <button class="btn-cyan" onclick="imprimirPSDetalle()">
+                        📄 Generar PDF
+                    </button>
+                </div>
+            </div>
+        </div>`);
+}
+
+function imprimirPSDetalle() {
+    const area = document.getElementById('ps-det-printable');
+    if (!area) return;
+    const win = window.open('', '_blank', 'width=860,height=720');
+    win.document.write(`<!DOCTYPE html><html lang="es"><head>
+        <meta charset="UTF-8"><title>Puesta en Servicio — PROINTEL</title>
+        <style>
+            *{margin:0;padding:0;box-sizing:border-box}
+            body{font-family:'Segoe UI',Arial,sans-serif;color:#111;padding:2rem;max-width:820px;margin:0 auto}
+            h2{font-size:1.1rem;margin-bottom:1rem;color:#0d1520;border-bottom:3px solid #00c8f0;padding-bottom:.5rem}
+            .grid{display:grid;grid-template-columns:1fr 1fr;gap:.7rem;margin-bottom:1.2rem}
+            .card{background:#f8fafb;border-left:3px solid #00c8f0;padding:.6rem .9rem;border-radius:0 5px 5px 0}
+            .lbl{font-size:.62rem;font-weight:700;text-transform:uppercase;color:#636e72;margin-bottom:.2rem}
+            .val{font-size:.9rem;font-weight:600;color:#0d1520}
+            .badge{display:inline-block;background:#e8f8ee;color:#1a7a4a;border-radius:20px;
+                   padding:.2rem .7rem;font-size:.78rem;font-weight:700}
+            table{width:100%;border-collapse:collapse;font-size:.84rem}
+            thead tr{background:#0d1520;color:#fff}
+            th{padding:.55rem .8rem;text-align:left;font-size:.75rem}
+            td{padding:.55rem .8rem;border-bottom:1px solid #edf2f0}
+            input{border:1px solid #ddd;border-radius:4px;padding:.25rem .4rem;
+                  font-size:.8rem;width:100%;background:#f9f9f9}
+            .art-label{font-weight:600;color:#0d1520}
+            @media print{body{padding:1rem}}
+        </style>
+    </head><body>
+        <h2>✅ Puesta en Servicio — PROINTEL 2.0</h2>
+        ${area.innerHTML}
+    </body></html>`);
+    win.document.close();
+    setTimeout(() => win.print(), 500);
+}
+
+function exportarGrupoExcel(keyEncoded) {
+    const key    = decodeURIComponent(keyEncoded);
+    const source = window._puestasServicio || window._instaladas || [];
+    const grupo  = source.filter(r => {
+        const k = (r.numero_ot || r.correlativo_descargo) + '_' + (r.tecnico_id||'');
+        return k === key;
+    });
+    if (!grupo.length) { _notificar('Sin datos.'); return; }
+    const ot = grupo[0].numero_ot || grupo[0].correlativo_descargo;
+    exportarExcelGrupoPS(grupo, `OT_${ot}`);
+}
+
+function exportarPSExcel() {
+    const rows = window._puestasServicio || [];
+    if (!rows.length) { _notificar('Sin datos para exportar.'); return; }
+    exportarExcelGrupoPS(rows, 'PuestasEnServicio_PROINTEL');
+}
+
+function exportarExcelGrupoPS(rows, nombre) {
+    const BOM     = '\uFEFF';
+    const headers = ['Correlativo','OT','Técnico','Artículo','Código','Cantidad','Cliente','Fecha'];
+    const filas   = rows.map(r => [
+        r.correlativo_descargo || '—',
+        r.numero_ot            || '—',
+        r.tecNombre            || '—',
+        r.artNombre            || '—',
+        r.artCodigo            || '—',
+        r.cantidad_usada       || 1,
+        r.cliente              || '—',
+        r.fecha ? new Date(r.fecha).toLocaleDateString('es-SV') : '—',
+    ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(','));
+
+    const csv  = BOM + [headers.join(','), ...filas].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = `${nombre}.csv`; a.click();
+    URL.revokeObjectURL(url);
+    _mostrarToastExito(`✅ ${nombre}.csv descargado`);
+}
 async function cargarTransferencias() {
     const content = document.getElementById('dashboard-content');
     content.innerHTML = `

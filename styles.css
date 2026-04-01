@@ -2871,3 +2871,25 @@ code.serie-code {
     .mfs-head { flex-direction: column; gap: .8rem; }
     .mfs-head-right { text-align: left; }
 }
+
+/* ═══════════════════════════════════════════════
+   PUESTAS EN SERVICIO — inputs estilo formulario
+═══════════════════════════════════════════════ */
+.ps-input-serie,
+.ps-input-codigo,
+.ps-input-cant {
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--white);
+    padding: .3rem .5rem;
+    font-size: .8rem;
+    transition: border-color .15s;
+}
+.ps-input-serie:focus,
+.ps-input-codigo:focus,
+.ps-input-cant:focus {
+    outline: none;
+    border-color: var(--border-cyan);
+}
+.ps-art-row td { padding: .5rem .7rem; }
