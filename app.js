@@ -5180,6 +5180,9 @@ function abrirInstalacion() { abrirDescargos(); }
 async function abrirDescargos() {
     window._misBodegaItems = null;
     const content = document.getElementById('dashboard-content');
+    // Reiniciar carrito al abrir
+    window._listaDescargo = [];
+
     if (content) {
         content.innerHTML = `
             <div class="module-header">
@@ -5299,11 +5302,33 @@ async function abrirDescargos() {
                         <textarea id="desc-notas" rows="3"
                             placeholder="Tipo de instalación, observaciones técnicas…"></textarea>
                     </div>
+
+                    <!-- Botón agregar al carrito -->
+                    <div class="field field-full" style="margin-top:.2rem">
+                        <button type="button" class="btn-outline-sm"
+                            onclick="agregarAlCarritoDescargo()"
+                            style="width:100%;justify-content:center;font-size:.88rem;padding:.6rem">
+                            ➕ Añadir material a la lista
+                        </button>
+                    </div>
+
+                    <!-- Lista de materiales del descargo -->
+                    <div class="field field-full">
+                        <label>MATERIALES A DESCARGAR
+                            <span id="desc-carrito-count" class="series-count-badge"
+                                style="display:none"></span>
+                        </label>
+                        <div id="desc-carrito" class="carrito-vacio">
+                            Sin materiales agregados aún
+                        </div>
+                    </div>
+
                 </div>
                 <div id="descargo-footer">
                     <button type="button" class="btn-ghost-sm"
                         onclick="cargarMisArticulos()">Cancelar</button>
-                    <button type="submit" class="btn-guardar-final" id="btnGuardarDescargo">
+                    <button type="submit" class="btn-guardar-final" id="btnGuardarDescargo"
+                        disabled style="opacity:.5">
                         📦 Finalizar Descargo
                     </button>
                 </div>
@@ -5540,18 +5565,24 @@ async function cargarInstaladas() {
             `<tr><td colspan="7" class="empty-row error-msg">❌ ${esc(err.message)}</td></tr>`;
     }
 }
-function verDetalleInstalacion(otEncoded) {
-    const ot   = decodeURIComponent(otEncoded);
+async function verDetalleInstalacion(otEncoded) {
+    const ot = decodeURIComponent(otEncoded);
+
+    // Si el array global está vacío, recargar desde BD primero
+    if (!window._instaladas || !window._instaladas.length) {
+        await cargarInstaladas();
+    }
+
     const rows = (window._instaladas || []).filter(r =>
         (r.numero_ot || String(r.correlativo_descargo)) === ot
     );
 
-    if (!rows.length) { _notificar('No se encontraron detalles.'); return; }
+    if (!rows.length) { _notificar('No se encontraron detalles para esta OT.'); return; }
 
     document.getElementById('modal-inst-detalle')?.remove();
 
-    const g      = rows[0];
-    const fecha  = g.fecha ? new Date(g.fecha).toLocaleDateString('es-SV', {
+    const g     = rows[0];
+    const fecha = g.fecha ? new Date(g.fecha).toLocaleDateString('es-SV', {
         weekday:'long', day:'2-digit', month:'long', year:'numeric'
     }) : '—';
 
@@ -5573,18 +5604,19 @@ function verDetalleInstalacion(otEncoded) {
                 <div class="modal-head">
                     <div class="modal-head-left">
                         <span class="modal-icon">✅</span>
-                        <span>Detalle de Instalación</span>
+                        <span>Detalle — OT ${esc(g.numero_ot||'—')}</span>
                     </div>
                     <button class="modal-close"
                         onclick="document.getElementById('modal-inst-detalle').remove()">✕</button>
                 </div>
-                <div class="modal-body" id="inst-det-body">
 
+                <div class="modal-body">
                     <div id="inst-det-printable">
+
                         <div class="mfs-head">
                             <div>
                                 <div class="mfs-brand">PRO<span>INTEL</span></div>
-                                <div class="mfs-brand-sub">Reporte de Instalación</div>
+                                <div class="mfs-brand-sub">Comprobante de Descargo</div>
                             </div>
                             <div class="mfs-head-right">
                                 <div class="mfs-tipo-badge">DESCARGO DE MATERIAL</div>
@@ -5597,7 +5629,7 @@ function verDetalleInstalacion(otEncoded) {
                             <div class="mfs-info-card">
                                 <div class="mfs-info-label">Técnico</div>
                                 <div class="mfs-info-val">
-                                    ${esc(currentUser.nombre_completo || currentUser.usuario)}
+                                    ${esc(currentUser?.nombre_completo || currentUser?.usuario || '—')}
                                 </div>
                             </div>
                             <div class="mfs-info-card">
@@ -5611,18 +5643,18 @@ function verDetalleInstalacion(otEncoded) {
                                 <th>#</th>
                                 <th>Artículo / Material</th>
                                 <th>Código</th>
-                                <th style="text-align:center">Cantidad</th>
+                                <th style="text-align:center">Cant. Usada</th>
                             </tr></thead>
                             <tbody>${filasHTML}</tbody>
                         </table>
 
                         <div class="mfs-footer">
-                            <span>PROINTEL 2.0 — Comprobante de Instalación</span>
+                            <span>PROINTEL 2.0 — Sistema de Gestión Residencial</span>
                             <span>Impreso el ${new Date().toLocaleDateString('es-SV')}</span>
                         </div>
                     </div>
-
                 </div>
+
                 <div class="modal-foot">
                     <button class="btn-ghost-sm"
                         onclick="document.getElementById('modal-inst-detalle').remove()">
@@ -5719,85 +5751,167 @@ function exportarExcelInstalaciones(rows, nombreArchivo) {
     URL.revokeObjectURL(url);
     _mostrarToastExito(`✅ Exportado: ${nombreArchivo}.csv`);
 }
+function agregarAlCarritoDescargo() {
+    const sel     = document.getElementById('desc-item');
+    const cantEl  = document.getElementById('desc-cantidad');
+    const opt     = sel?.options[sel?.selectedIndex];
+
+    if (!opt || !opt.value) {
+        _notificar('Selecciona un material primero.');
+        return;
+    }
+
+    const tipo     = opt.getAttribute('data-tipo');
+    const esMisc   = tipo === 'misc';
+    const maxStock = parseInt(opt.getAttribute('data-max') || 0);
+    const nombre   = opt.getAttribute('data-nombre') || opt.text;
+    const unidad   = opt.getAttribute('data-unidad') || 'und';
+    const invId    = opt.getAttribute('data-inv-id')  || '';
+    const artId    = opt.getAttribute('data-art-id')  || '';
+    const serieId  = opt.getAttribute('data-serie-id')|| '';
+    const serie    = opt.getAttribute('data-serie')   || '';
+    const cantidad = esMisc ? (parseInt(cantEl?.value) || 1) : 1;
+
+    if (cantidad < 1) { _notificar('La cantidad debe ser al menos 1.'); return; }
+    if (esMisc && cantidad > maxStock) {
+        _notificar('⚠️ Stock insuficiente. Disponible: ' + maxStock + ' ' + unidad);
+        return;
+    }
+
+    // Evitar duplicar el mismo seriado
+    window._listaDescargo = window._listaDescargo || [];
+    if (!esMisc && window._listaDescargo.some(x => x.invId === invId)) {
+        _notificar('Este equipo ya está en la lista.');
+        return;
+    }
+
+    window._listaDescargo.push({ tipo, esMisc, nombre, unidad, cantidad, maxStock,
+                                  invId, artId, serieId, serie });
+
+    // Limpiar selección para el siguiente artículo
+    sel.value = '';
+    if (cantEl) { cantEl.value = 1; cantEl.max = 1; }
+    document.getElementById('desc-stock-badge') &&
+        (document.getElementById('desc-stock-badge').style.display = 'none');
+    document.getElementById('desc-codigo-wrap')?.classList.add('hidden');
+
+    renderCarritoDescargo();
+}
+
+function renderCarritoDescargo() {
+    const cont  = document.getElementById('desc-carrito');
+    const badge = document.getElementById('desc-carrito-count');
+    const lista = window._listaDescargo || [];
+    const btn   = document.getElementById('btnGuardarDescargo');
+
+    if (badge) {
+        badge.textContent   = lista.length;
+        badge.style.display = lista.length ? 'inline-block' : 'none';
+        badge.style.background = 'rgba(0,200,240,.15)';
+        badge.style.color      = 'var(--cyan)';
+        badge.style.border     = '1px solid var(--border-cyan)';
+    }
+    if (btn) btn.disabled = lista.length === 0;
+
+    if (!lista.length) {
+        cont.className   = 'carrito-vacio';
+        cont.textContent = 'Sin materiales agregados aún';
+        return;
+    }
+
+    cont.className = 'carrito-lista';
+    cont.innerHTML = lista.map((e, i) => `
+        <div class="carrito-item">
+            <div class="carrito-info">
+                <span class="carrito-nombre">${esc(e.nombre)}</span>
+                ${e.serie
+                    ? `<code class="serie-code" style="font-size:.72rem">${esc(e.serie)}</code>`
+                    : `<span class="td-date">${e.cantidad} ${esc(e.unidad)}</span>`}
+            </div>
+            <button type="button" class="act-btn act-del"
+                onclick="quitarDeCarritoDescargo(${i})" title="Quitar">✕</button>
+        </div>`).join('');
+}
+
+function quitarDeCarritoDescargo(idx) {
+    if (window._listaDescargo) window._listaDescargo.splice(idx, 1);
+    renderCarritoDescargo();
+}
 async function guardarDescargo(e) {
     e.preventDefault();
 
-    const ot       = document.getElementById('desc-ot')?.value.trim();
-    const selectEl = document.getElementById('desc-item');
-    const opt      = selectEl?.options[selectEl?.selectedIndex];
-    const cantidad = parseInt(document.getElementById('desc-cantidad')?.value || 1);
-    const destino  = document.getElementById('desc-destino')?.value.trim()  || null;
-    const notas    = document.getElementById('desc-notas')?.value.trim()    || null;
+    const ot      = document.getElementById('desc-ot')?.value.trim();
+    const destino = document.getElementById('desc-destino')?.value.trim() || null;
+    const notas   = document.getElementById('desc-notas')?.value.trim()   || null;
+    const lista   = window._listaDescargo || [];
 
-    if (!ot)     { _notificar('El número de OT es obligatorio.'); return; }
-    if (!opt?.value) { _notificar('Selecciona el material a descargar.'); return; }
-
-    const tipo     = opt.getAttribute('data-tipo');
-    const maxStock = parseInt(opt.getAttribute('data-max') || 0);
-    const artId    = parseInt(opt.getAttribute('data-art-id') || 0);
-    const invId    = parseInt(opt.getAttribute('data-inv-id') || 0);
-    const serieId  = parseInt(opt.getAttribute('data-serie-id') || 0);
-    const nombre   = opt.getAttribute('data-nombre') || '—';
-
-    if (cantidad > maxStock) {
-        _notificar(`⚠️ No tienes suficiente material. Tu stock personal: ${maxStock} unidades.`);
-        return;
-    }
+    if (!ot)           { _notificar('El número de OT es obligatorio.'); return; }
+    if (!lista.length) { _notificar('Agrega al menos un material a la lista.'); return; }
 
     const btn    = document.getElementById('btnGuardarDescargo');
     const btnTxt = btn?.textContent || '📦 Finalizar Descargo';
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Guardando…'; }
 
-    // Correlativo de descargo — máximo + 1
-    const { data: corrData } = await window.supabase
-        .from('registros_instalaciones')
-        .select('correlativo_descargo')
-        .order('correlativo_descargo', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-    const correlativo_descargo = (corrData?.correlativo_descargo || 0) + 1;
-
-    const payload = {
-        correlativo_descargo,
-        tecnico_id:             currentUser.id,
-        numero_ot:              ot,
-        cliente:                destino,
-        articulo_id:            artId || null,
-        cantidad_usada:         cantidad,
-        serie_id:               (tipo === 'seriado' && serieId) ? serieId : null,
-        fecha:                  new Date().toISOString(),
-    };
-
-    console.log('PROINTEL — descargo payload:', JSON.stringify(payload, null, 2));
-
     try {
-        const { error: errDesc } = await window.supabase
+        // Correlativo de descargo — máximo + 1
+        const { data: corrData } = await window.supabase
             .from('registros_instalaciones')
-            .insert(payload);
+            .select('correlativo_descargo')
+            .order('correlativo_descargo', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+        const correlativo_descargo = (corrData?.correlativo_descargo || 0) + 1;
 
-        if (errDesc) throw new Error(
-            `Error [${errDesc.code||''}]: ${errDesc.message}` +
-            (errDesc.details ? ' | ' + errDesc.details : '')
-        );
+        // Insert un registro por cada material de la lista
+        for (const item of lista) {
+            const payload = {
+                correlativo_descargo,
+                tecnico_id:    currentUser.id,
+                numero_ot:     ot,
+                cliente:       destino,
+                articulo_id:   parseInt(item.artId) || null,
+                cantidad_usada: item.cantidad,
+                serie_id:      (item.serieId && !isNaN(parseInt(item.serieId)))
+                               ? parseInt(item.serieId) : null,
+                fecha:         new Date().toISOString(),
+            };
 
-        // Actualizar stock según tipo
-        if (tipo === 'seriado' && serieId) {
-            await window.supabase
-                .from('series')
-                .update({ estado: 'INSTALADO', asignado_a: null })
-                .eq('id', serieId);
+            const { error: errDesc } = await window.supabase
+                .from('registros_instalaciones')
+                .insert(payload);
 
-        } else if (tipo === 'misc' && invId) {
-            const nuevo = Math.max(0, maxStock - cantidad);
-            await window.supabase
-                .from('inventario_tecnicos')
-                .update({ cantidad_disponible: nuevo })
-                .eq('id', invId);
+            if (errDesc) throw new Error(
+                `Error [${errDesc.code||''}]: ${errDesc.message}`
+            );
+
+            // Actualizar stock en bodega
+            if (item.tipo === 'seriado' && item.serieId) {
+                await window.supabase.from('series')
+                    .update({ estado: 'INSTALADO', asignado_a: null })
+                    .eq('id', item.serieId);
+            }
+
+            if (item.invId) {
+                const { data: act } = await window.supabase
+                    .from('bodega').select('cantidad')
+                    .eq('id', item.invId).maybeSingle();
+                const nuevo = Math.max(0, (act?.cantidad || 0) - item.cantidad);
+                await window.supabase.from('bodega')
+                    .update({
+                        cantidad: nuevo,
+                        estado:   nuevo <= 0 ? 'instalado' : 'disponible',
+                    })
+                    .eq('id', item.invId);
+            }
         }
 
+        // Éxito
+        window._listaDescargo  = [];
         window._misBodegaItems = null;
-        _mostrarToastExito(`✅ Descargo #${correlativo_descargo} — OT ${esc(ot)} registrado`);
-        setTimeout(() => cargarMisArticulos(), 800);
+        _mostrarToastExito(
+            `✅ Descargo #${correlativo_descargo} — OT ${esc(ot)} · ${lista.length} material${lista.length!==1?'es':''}`
+        );
+        setTimeout(() => cargarInstaladas(), 600);
 
     } catch (err) {
         alert('❌ ' + err.message);
