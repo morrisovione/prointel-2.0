@@ -5776,9 +5776,7 @@ async function cargarInstaladas() {
             <div class="header-actions">
                 <span class="su-name-badge">${esc(currentUser.nombre_completo || currentUser.usuario)}</span>
                 <button class="btn-nav" onclick="cargarInstaladas()">↺ Actualizar</button>
-                <button class="btn-outline-sm" onclick="exportarInstaladasExcel()">
-                    📊 Exportar Excel
-                </button>
+                <button class="btn-outline-sm" onclick="exportarInstaladasExcel()">📊 Exportar Todo</button>
             </div>
         </div>
         <div class="inv-stats" id="inst-stats">
@@ -5820,7 +5818,7 @@ async function cargarInstaladas() {
         if (error) throw error;
         const rows = registros || [];
 
-        // Enriquecer con nombre de artículo
+        // Enriquecer artículos
         const artIds = [...new Set(rows.map(r => r.articulo_id).filter(Boolean))];
         let artMap = {};
         if (artIds.length) {
@@ -5829,41 +5827,41 @@ async function cargarInstaladas() {
             (arts||[]).forEach(a => { artMap[a.id] = a; });
         }
 
-        // Enriquecer cada fila con nombre de artículo
         const rowsRich = rows.map(r => ({
             ...r,
             artNombre: artMap[r.articulo_id]?.nombre || '—',
             artCodigo: artMap[r.articulo_id]?.codigo || '',
+            tecNombre: currentUser.nombre_completo || currentUser.usuario || '—',
+            tecnico_id: currentUser.id,
         }));
 
-        // Guardar en global para exportar y ver detalle
         window._instaladas = rowsRich;
 
-        // Agrupar por OT para mostrar una fila por trabajo
+        // Agrupar por OT
         const porOT = {};
         rowsRich.forEach(r => {
-            const key = r.numero_ot || r.correlativo_descargo || r.id;
+            const key = (r.numero_ot || r.correlativo_descargo) + '_' + currentUser.id;
             if (!porOT[key]) porOT[key] = {
                 correlativo: r.correlativo_descargo,
                 ot:          r.numero_ot || '—',
                 cliente:     r.cliente   || '—',
                 fecha:       r.fecha,
                 items:       [],
+                _key:        key,
             };
             porOT[key].items.push(r);
         });
 
         const grupos = Object.values(porOT);
 
-        // Stats
         document.getElementById('inst-stats').innerHTML = `
             <div class="istat">
-                <span class="istat-num">${rows.length}</span>
-                <span class="istat-label">Materiales descargados</span>
-            </div>
-            <div class="istat istat-cyan">
                 <span class="istat-num">${grupos.length}</span>
                 <span class="istat-label">Trabajos realizados</span>
+            </div>
+            <div class="istat istat-cyan">
+                <span class="istat-num">${rows.length}</span>
+                <span class="istat-label">Materiales usados</span>
             </div>`;
 
         const tbody = document.getElementById('inst-tbody');
@@ -5876,34 +5874,27 @@ async function cargarInstaladas() {
         }
 
         tbody.innerHTML = grupos.map((g, idx) => {
-            const fecha    = g.fecha
-                ? new Date(g.fecha).toLocaleDateString('es-SV')
-                : '—';
-            const nItems   = g.items.length;
-            const resumen  = g.items.slice(0,2).map(i => esc(i.artNombre)).join(', ')
-                           + (nItems > 2 ? ` +${nItems-2} más` : '');
-            const otKey    = encodeURIComponent(g.ot);
+            const fecha   = g.fecha
+                ? new Date(g.fecha).toLocaleDateString('es-SV') : '—';
+            const nItems  = g.items.length;
+            const resumen = g.items.slice(0,2).map(i => esc(i.artNombre)).join(', ')
+                          + (nItems > 2 ? ` +${nItems-2} más` : '');
+            const key     = encodeURIComponent(g._key);
 
             return `<tr>
                 <td class="row-num">${idx+1}</td>
                 <td><code class="sku-code">#${g.correlativo||'—'}</code></td>
-                <td style="font-family:var(--font-mono);font-weight:600">
-                    ${esc(g.ot)}
-                </td>
+                <td style="font-family:var(--font-mono);font-weight:600">${esc(g.ot)}</td>
                 <td style="font-size:.82rem;color:var(--dim)">
                     <span class="series-count-badge" style="margin-right:.3rem">${nItems}</span>
                     ${resumen}
                 </td>
                 <td style="font-size:.82rem">${esc(g.cliente)}</td>
                 <td class="td-date">${fecha}</td>
-                <td style="display:flex;gap:.3rem;flex-wrap:wrap">
-                    <button class="btn-cyan" style="font-size:.72rem;padding:.3rem .6rem"
-                        onclick="verDetalleInstalacion('${otKey}')">
+                <td>
+                    <button class="btn-cyan" style="font-size:.72rem;padding:.3rem .7rem"
+                        onclick="verDetalleInstalacion('${key}')">
                         👁 Ver
-                    </button>
-                    <button class="btn-outline-sm" style="font-size:.72rem;padding:.3rem .6rem"
-                        onclick="exportarOTExcel('${otKey}')">
-                        📊 Excel
                     </button>
                 </td>
             </tr>`;
@@ -5918,46 +5909,57 @@ async function cargarInstaladas() {
             `<tr><td colspan="7" class="empty-row error-msg">❌ ${esc(err.message)}</td></tr>`;
     }
 }
-async function verDetalleInstalacion(otEncoded) {
-    const ot = decodeURIComponent(otEncoded);
+async function verDetalleInstalacion(keyEncoded) {
+    const key = decodeURIComponent(keyEncoded);
 
-    // Si el array global está vacío, recargar desde BD primero
+    // Cargar datos si el array global está vacío
     if (!window._instaladas || !window._instaladas.length) {
         await cargarInstaladas();
     }
 
-    const rows = (window._instaladas || []).filter(r =>
-        (r.numero_ot || String(r.correlativo_descargo)) === ot
-    );
+    // Buscar en _instaladas del técnico
+    let grupo = (window._instaladas || []).filter(r => {
+        const k = (r.numero_ot || r.correlativo_descargo) + '_' + (r.tecnico_id || currentUser?.id || '');
+        return k === key;
+    });
 
-    if (!rows.length) { _notificar('No se encontraron detalles para esta OT.'); return; }
-
+    if (!grupo.length) { _notificar('No se encontraron detalles para esta OT.'); return; }
     document.getElementById('modal-inst-detalle')?.remove();
 
-    const g     = rows[0];
+    const g     = grupo[0];
     const fecha = g.fecha ? new Date(g.fecha).toLocaleDateString('es-SV', {
         weekday:'long', day:'2-digit', month:'long', year:'numeric'
     }) : '—';
 
-    const filasHTML = rows.map((r, i) => `
-        <tr>
+    const artFilasHTML = grupo.map((r, i) => `
+        <tr class="ps-art-row">
             <td class="row-num">${i+1}</td>
-            <td class="td-bold">${esc(r.artNombre)}</td>
-            <td><code style="font-family:var(--font-mono);font-size:.78rem">
-                ${esc(r.artCodigo||'—')}
-            </code></td>
-            <td style="text-align:center;font-family:var(--font-mono);font-weight:700">
-                ${r.cantidad_usada||1}
+            <td>
+                <input type="text" class="ps-input-serie"
+                    value="${esc(r.artCodigo||'')}" readonly
+                    placeholder="Serie" style="width:90px" />
+            </td>
+            <td>
+                <input type="text" class="ps-input-codigo"
+                    value="${esc(r.artCodigo||'')}" readonly
+                    style="width:90px" />
+            </td>
+            <td class="td-bold" style="min-width:180px">${esc(r.artNombre||'—')}</td>
+            <td style="text-align:center">
+                <input type="number" class="ps-input-cant"
+                    value="${r.cantidad_usada||1}" min="1"
+                    style="width:60px;text-align:center;font-weight:700" readonly />
             </td>
         </tr>`).join('');
 
     document.body.insertAdjacentHTML('beforeend', `
         <div class="modal-overlay" id="modal-inst-detalle" onclick="event.stopPropagation()">
-            <div class="modal-content mfs-content" onclick="event.stopPropagation()">
+            <div class="modal-content" style="max-width:780px" onclick="event.stopPropagation()">
+
                 <div class="modal-head">
                     <div class="modal-head-left">
                         <span class="modal-icon">✅</span>
-                        <span>Detalle — OT ${esc(g.numero_ot||'—')}</span>
+                        <span>Solicitud: ${esc(g.numero_ot||'—')}</span>
                     </div>
                     <button class="modal-close"
                         onclick="document.getElementById('modal-inst-detalle').remove()">✕</button>
@@ -5966,59 +5968,62 @@ async function verDetalleInstalacion(otEncoded) {
                 <div class="modal-body">
                     <div id="inst-det-printable">
 
-                        <div class="mfs-head">
-                            <div>
-                                <div class="mfs-brand">PRO<span>INTEL</span></div>
-                                <div class="mfs-brand-sub">Comprobante de Descargo</div>
+                        <div class="mfs-info-grid" style="margin-bottom:1rem">
+                            <div class="mfs-info-card">
+                                <div class="mfs-info-label">Estado de solicitud</div>
+                                <div class="mfs-info-val">
+                                    <span class="badge badge-disponible">Completada / Cerrada</span>
+                                </div>
                             </div>
-                            <div class="mfs-head-right">
-                                <div class="mfs-tipo-badge">DESCARGO DE MATERIAL</div>
-                                <div class="mfs-correlativo">OT: ${esc(g.numero_ot||'—')}</div>
-                                <div class="mfs-fecha">${fecha}</div>
-                            </div>
-                        </div>
-
-                        <div class="mfs-info-grid">
                             <div class="mfs-info-card">
                                 <div class="mfs-info-label">Técnico</div>
                                 <div class="mfs-info-val">
-                                    ${esc(currentUser?.nombre_completo || currentUser?.usuario || '—')}
+                                    ${esc(g.tecNombre || currentUser?.nombre_completo || '—')}
                                 </div>
                             </div>
                             <div class="mfs-info-card">
                                 <div class="mfs-info-label">Cliente / Dirección</div>
                                 <div class="mfs-info-val">${esc(g.cliente||'—')}</div>
                             </div>
+                            <div class="mfs-info-card">
+                                <div class="mfs-info-label">Fecha</div>
+                                <div class="mfs-info-val">${fecha}</div>
+                            </div>
                         </div>
 
-                        <table class="mfs-tabla">
-                            <thead><tr>
-                                <th>#</th>
-                                <th>Artículo / Material</th>
-                                <th>Código</th>
-                                <th style="text-align:center">Cant. Usada</th>
-                            </tr></thead>
-                            <tbody>${filasHTML}</tbody>
-                        </table>
-
-                        <div class="mfs-footer">
-                            <span>PROINTEL 2.0 — Sistema de Gestión Residencial</span>
-                            <span>Impreso el ${new Date().toLocaleDateString('es-SV')}</span>
+                        <div style="font-weight:700;font-size:.85rem;color:var(--white);
+                                    margin-bottom:.6rem;display:flex;align-items:center;gap:.5rem">
+                            📦 Artículos de instalación
+                            <span class="series-count-badge">${grupo.length}</span>
                         </div>
+
+                        <div class="table-wrap" style="max-height:320px;overflow-y:auto">
+                            <table class="data-table" style="font-size:.83rem">
+                                <thead><tr>
+                                    <th>#</th>
+                                    <th>SERIE</th>
+                                    <th>CÓDIGO</th>
+                                    <th>ARTÍCULO</th>
+                                    <th style="text-align:center">CANT.</th>
+                                </tr></thead>
+                                <tbody>${artFilasHTML}</tbody>
+                            </table>
+                        </div>
+
                     </div>
                 </div>
 
                 <div class="modal-foot">
                     <button class="btn-ghost-sm"
                         onclick="document.getElementById('modal-inst-detalle').remove()">
-                        Cerrar
+                        Cancelar
                     </button>
                     <button class="btn-ghost-sm"
-                        onclick="exportarOTExcel('${encodeURIComponent(g.numero_ot||'')}')">
+                        onclick="exportarOTExcel('${encodeURIComponent(key)}')">
                         📊 Descargar Excel
                     </button>
                     <button class="btn-cyan" onclick="imprimirDetalleInstalacion()">
-                        🖨 Imprimir / PDF
+                        📄 Generar PDF
                     </button>
                 </div>
             </div>
