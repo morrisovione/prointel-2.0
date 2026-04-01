@@ -5517,9 +5517,12 @@ async function cargarMisArticulos() {
             if (hCount) hCount.textContent =
                 `${hist.length} entrega${hist.length!==1?'s':''}`;
         };
-        // Ejecutar ahora y también después de 200ms por si el DOM tardó
+        // Ejecutar render del historial
         renderHistorial();
-        setTimeout(renderHistorial, 200);
+        // Si el panel historial ya está visible, también refrescar
+        if (!document.getElementById('panel-historial')?.classList.contains('hidden')) {
+            setTimeout(renderHistorial, 100);
+        }
 
     } catch (err) {
         console.error('PROINTEL — cargarMisArticulos:', err);
@@ -5532,10 +5535,10 @@ async function cargarMisArticulos() {
 
 // Cambiar entre pestañas de Mi Bodega
 function switchMiBodegaTab(tab) {
-    const panelStock    = document.getElementById('panel-stock');
+    const panelStock     = document.getElementById('panel-stock');
     const panelHistorial = document.getElementById('panel-historial');
-    const tabStock      = document.getElementById('tab-stock');
-    const tabHistorial  = document.getElementById('tab-historial');
+    const tabStock       = document.getElementById('tab-stock');
+    const tabHistorial   = document.getElementById('tab-historial');
 
     if (tab === 'stock') {
         panelStock?.classList.remove('hidden');
@@ -5547,6 +5550,93 @@ function switchMiBodegaTab(tab) {
         panelStock?.classList.add('hidden');
         tabHistorial?.classList.add('mb-tab-active');
         tabStock?.classList.remove('mb-tab-active');
+
+        // Si el historial está vacío o mostrando "Cargando", recargar
+        const hTbody = document.getElementById('hist-tbody');
+        const isEmpty = !hTbody || hTbody.innerHTML.includes('⏳') ||
+                        hTbody.innerHTML.includes('empty-row');
+        if (isEmpty) {
+            // Recargar datos del historial sin re-renderizar todo
+            cargarHistorialEntregas();
+        }
+    }
+}
+
+// Carga solo el panel de historial (sin recargar stock)
+async function cargarHistorialEntregas() {
+    if (!currentUser?.id) return;
+
+    const hTbody = document.getElementById('hist-tbody');
+    const hCount = document.getElementById('hist-count');
+    if (!hTbody) return;
+
+    hTbody.innerHTML = '<tr><td colspan="7" class="empty-row">⏳ Cargando historial…</td></tr>';
+
+    try {
+        const { data: histRaw, error } = await window.supabase
+            .from('registros_salida')
+            .select('id, correlativo, articulo_id, cantidad, fecha, nombre_articulo, despachado_por')
+            .eq('tecnico_id', currentUser.id)
+            .order('correlativo', { ascending: false })
+            .limit(50);
+
+        if (error) throw error;
+
+        // Enriquecer con nombre de artículo desde tabla articulos
+        const artIds = [...new Set((histRaw||[]).map(h => h.articulo_id).filter(Boolean))];
+        let artMap = {};
+        if (artIds.length) {
+            const { data: arts } = await window.supabase
+                .from('articulos')
+                .select('id, nombre, codigo, unidad_medida')
+                .in('id', artIds);
+            (arts||[]).forEach(a => { artMap[a.id] = a; });
+        }
+
+        const hist = (histRaw||[]).map(h => ({ ...h, art: artMap[h.articulo_id] || null }));
+
+        if (!hist.length) {
+            hTbody.innerHTML = '<tr><td colspan="7" class="empty-row">No tienes entregas registradas aún.</td></tr>';
+            if (hCount) hCount.textContent = '';
+            return;
+        }
+
+        hTbody.innerHTML = hist.map((h, idx) => {
+            const artNombre = h.art?.nombre || h.nombre_articulo || '—';
+            const artCodigo = h.art?.codigo || '';
+            const unidad    = h.art?.unidad_medida || 'und';
+            const desp      = h.despachado_por || 'Bodega Central';
+            const fecha     = h.fecha
+                ? new Date(h.fecha).toLocaleDateString('es-SV')
+                : '—';
+            return `<tr>
+                <td class="row-num">${idx+1}</td>
+                <td><code class="sku-code">#${h.correlativo||'—'}</code></td>
+                <td class="td-bold">
+                    ${esc(artNombre)}
+                    ${artCodigo
+                        ? `<br><span style="font-size:.7rem;color:var(--dim)">${esc(artCodigo)}</span>`
+                        : ''}
+                </td>
+                <td style="font-family:var(--font-mono)">${h.cantidad||'—'} ${esc(unidad)}</td>
+                <td style="font-size:.82rem">${esc(desp)}</td>
+                <td class="td-date">${fecha}</td>
+                <td>
+                    <button class="btn-cyan" style="font-size:.75rem;padding:.3rem .7rem"
+                        onclick="verFacturaSalida('${h.id}')">
+                        🧾 Ver PDF
+                    </button>
+                </td>
+            </tr>`;
+        }).join('');
+
+        if (hCount) hCount.textContent =
+            `${hist.length} entrega${hist.length!==1?'s':''}`;
+
+    } catch (err) {
+        console.error('PROINTEL — cargarHistorialEntregas:', err);
+        if (hTbody) hTbody.innerHTML =
+            `<tr><td colspan="7" class="empty-row error-msg">❌ ${esc(err.message)}</td></tr>`;
     }
 }
 
