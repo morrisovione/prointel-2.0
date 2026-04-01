@@ -5398,6 +5398,9 @@ async function cargarInstaladas() {
             <div class="header-actions">
                 <span class="su-name-badge">${esc(currentUser.nombre_completo || currentUser.usuario)}</span>
                 <button class="btn-nav" onclick="cargarInstaladas()">↺ Actualizar</button>
+                <button class="btn-outline-sm" onclick="exportarInstaladasExcel()">
+                    📊 Exportar Excel
+                </button>
             </div>
         </div>
         <div class="inv-stats" id="inst-stats">
@@ -5407,7 +5410,7 @@ async function cargarInstaladas() {
         <div class="inv-toolbar">
             <div class="search-bar" style="flex:1">
                 <input type="text" id="inst-search"
-                    placeholder="🔍  Buscar por OT, cliente, artículo…"
+                    placeholder="🔍  Buscar por OT, cliente…"
                     oninput="filtrarTabla('inst-search','tabla-inst')" />
             </div>
         </div>
@@ -5417,10 +5420,10 @@ async function cargarInstaladas() {
                     <th>#</th>
                     <th>CORRELATIVO</th>
                     <th>OT / SOLICITUD</th>
-                    <th>ARTÍCULO</th>
-                    <th>CANT. USADA</th>
+                    <th>MATERIALES</th>
                     <th>CLIENTE</th>
                     <th>FECHA</th>
+                    <th>VER</th>
                 </tr></thead>
                 <tbody id="inst-tbody">
                     <tr><td colspan="7" class="empty-row">⏳ Cargando…</td></tr>
@@ -5444,63 +5447,277 @@ async function cargarInstaladas() {
         let artMap = {};
         if (artIds.length) {
             const { data: arts } = await window.supabase
-                .from('articulos')
-                .select('id, nombre, codigo')
-                .in('id', artIds);
+                .from('articulos').select('id, nombre, codigo').in('id', artIds);
             (arts||[]).forEach(a => { artMap[a.id] = a; });
         }
+
+        // Enriquecer cada fila con nombre de artículo
+        const rowsRich = rows.map(r => ({
+            ...r,
+            artNombre: artMap[r.articulo_id]?.nombre || '—',
+            artCodigo: artMap[r.articulo_id]?.codigo || '',
+        }));
+
+        // Guardar en global para exportar y ver detalle
+        window._instaladas = rowsRich;
+
+        // Agrupar por OT para mostrar una fila por trabajo
+        const porOT = {};
+        rowsRich.forEach(r => {
+            const key = r.numero_ot || r.correlativo_descargo || r.id;
+            if (!porOT[key]) porOT[key] = {
+                correlativo: r.correlativo_descargo,
+                ot:          r.numero_ot || '—',
+                cliente:     r.cliente   || '—',
+                fecha:       r.fecha,
+                items:       [],
+            };
+            porOT[key].items.push(r);
+        });
+
+        const grupos = Object.values(porOT);
 
         // Stats
         document.getElementById('inst-stats').innerHTML = `
             <div class="istat">
                 <span class="istat-num">${rows.length}</span>
-                <span class="istat-label">Descargos realizados</span>
+                <span class="istat-label">Materiales descargados</span>
             </div>
             <div class="istat istat-cyan">
-                <span class="istat-num">${new Set(rows.map(r=>r.numero_ot)).size}</span>
-                <span class="istat-label">OTs distintas</span>
+                <span class="istat-num">${grupos.length}</span>
+                <span class="istat-label">Trabajos realizados</span>
             </div>`;
 
         const tbody = document.getElementById('inst-tbody');
         const count = document.getElementById('inst-count');
 
-        if (!rows.length) {
+        if (!grupos.length) {
             tbody.innerHTML = '<tr><td colspan="7" class="empty-row">No tienes descargos registrados aún.</td></tr>';
             if (count) count.textContent = '';
             return;
         }
 
-        tbody.innerHTML = rows.map((r, idx) => {
-            const art   = artMap[r.articulo_id] || {};
-            const fecha = r.fecha
-                ? new Date(r.fecha).toLocaleDateString('es-SV')
+        tbody.innerHTML = grupos.map((g, idx) => {
+            const fecha    = g.fecha
+                ? new Date(g.fecha).toLocaleDateString('es-SV')
                 : '—';
+            const nItems   = g.items.length;
+            const resumen  = g.items.slice(0,2).map(i => esc(i.artNombre)).join(', ')
+                           + (nItems > 2 ? ` +${nItems-2} más` : '');
+            const otKey    = encodeURIComponent(g.ot);
+
             return `<tr>
                 <td class="row-num">${idx+1}</td>
-                <td><code class="sku-code">#${r.correlativo_descargo||'—'}</code></td>
+                <td><code class="sku-code">#${g.correlativo||'—'}</code></td>
                 <td style="font-family:var(--font-mono);font-weight:600">
-                    ${esc(r.numero_ot||'—')}
+                    ${esc(g.ot)}
                 </td>
-                <td class="td-bold">
-                    ${esc(art.nombre||'—')}
-                    ${art.codigo
-                        ? `<br><span style="font-size:.7rem;color:var(--dim)">${esc(art.codigo)}</span>`
-                        : ''}
+                <td style="font-size:.82rem;color:var(--dim)">
+                    <span class="series-count-badge" style="margin-right:.3rem">${nItems}</span>
+                    ${resumen}
                 </td>
-                <td style="font-family:var(--font-mono)">${r.cantidad_usada||'—'}</td>
-                <td style="font-size:.82rem">${esc(r.cliente||'—')}</td>
+                <td style="font-size:.82rem">${esc(g.cliente)}</td>
                 <td class="td-date">${fecha}</td>
+                <td style="display:flex;gap:.3rem;flex-wrap:wrap">
+                    <button class="btn-cyan" style="font-size:.72rem;padding:.3rem .6rem"
+                        onclick="verDetalleInstalacion('${otKey}')">
+                        👁 Ver
+                    </button>
+                    <button class="btn-outline-sm" style="font-size:.72rem;padding:.3rem .6rem"
+                        onclick="exportarOTExcel('${otKey}')">
+                        📊 Excel
+                    </button>
+                </td>
             </tr>`;
         }).join('');
 
         if (count) count.textContent =
-            `${rows.length} descargo${rows.length!==1?'s':''}`;
+            `${grupos.length} trabajo${grupos.length!==1?'s':''} · ${rows.length} material${rows.length!==1?'es':''}`;
 
     } catch (err) {
         console.error('PROINTEL — cargarInstaladas:', err);
         document.getElementById('inst-tbody').innerHTML =
             `<tr><td colspan="7" class="empty-row error-msg">❌ ${esc(err.message)}</td></tr>`;
     }
+}
+function verDetalleInstalacion(otEncoded) {
+    const ot   = decodeURIComponent(otEncoded);
+    const rows = (window._instaladas || []).filter(r =>
+        (r.numero_ot || String(r.correlativo_descargo)) === ot
+    );
+
+    if (!rows.length) { _notificar('No se encontraron detalles.'); return; }
+
+    document.getElementById('modal-inst-detalle')?.remove();
+
+    const g      = rows[0];
+    const fecha  = g.fecha ? new Date(g.fecha).toLocaleDateString('es-SV', {
+        weekday:'long', day:'2-digit', month:'long', year:'numeric'
+    }) : '—';
+
+    const filasHTML = rows.map((r, i) => `
+        <tr>
+            <td class="row-num">${i+1}</td>
+            <td class="td-bold">${esc(r.artNombre)}</td>
+            <td><code style="font-family:var(--font-mono);font-size:.78rem">
+                ${esc(r.artCodigo||'—')}
+            </code></td>
+            <td style="text-align:center;font-family:var(--font-mono);font-weight:700">
+                ${r.cantidad_usada||1}
+            </td>
+        </tr>`).join('');
+
+    document.body.insertAdjacentHTML('beforeend', `
+        <div class="modal-overlay" id="modal-inst-detalle" onclick="event.stopPropagation()">
+            <div class="modal-content mfs-content" onclick="event.stopPropagation()">
+                <div class="modal-head">
+                    <div class="modal-head-left">
+                        <span class="modal-icon">✅</span>
+                        <span>Detalle de Instalación</span>
+                    </div>
+                    <button class="modal-close"
+                        onclick="document.getElementById('modal-inst-detalle').remove()">✕</button>
+                </div>
+                <div class="modal-body" id="inst-det-body">
+
+                    <div id="inst-det-printable">
+                        <div class="mfs-head">
+                            <div>
+                                <div class="mfs-brand">PRO<span>INTEL</span></div>
+                                <div class="mfs-brand-sub">Reporte de Instalación</div>
+                            </div>
+                            <div class="mfs-head-right">
+                                <div class="mfs-tipo-badge">DESCARGO DE MATERIAL</div>
+                                <div class="mfs-correlativo">OT: ${esc(g.numero_ot||'—')}</div>
+                                <div class="mfs-fecha">${fecha}</div>
+                            </div>
+                        </div>
+
+                        <div class="mfs-info-grid">
+                            <div class="mfs-info-card">
+                                <div class="mfs-info-label">Técnico</div>
+                                <div class="mfs-info-val">
+                                    ${esc(currentUser.nombre_completo || currentUser.usuario)}
+                                </div>
+                            </div>
+                            <div class="mfs-info-card">
+                                <div class="mfs-info-label">Cliente / Dirección</div>
+                                <div class="mfs-info-val">${esc(g.cliente||'—')}</div>
+                            </div>
+                        </div>
+
+                        <table class="mfs-tabla">
+                            <thead><tr>
+                                <th>#</th>
+                                <th>Artículo / Material</th>
+                                <th>Código</th>
+                                <th style="text-align:center">Cantidad</th>
+                            </tr></thead>
+                            <tbody>${filasHTML}</tbody>
+                        </table>
+
+                        <div class="mfs-footer">
+                            <span>PROINTEL 2.0 — Comprobante de Instalación</span>
+                            <span>Impreso el ${new Date().toLocaleDateString('es-SV')}</span>
+                        </div>
+                    </div>
+
+                </div>
+                <div class="modal-foot">
+                    <button class="btn-ghost-sm"
+                        onclick="document.getElementById('modal-inst-detalle').remove()">
+                        Cerrar
+                    </button>
+                    <button class="btn-outline-sm"
+                        onclick="exportarOTExcel('${encodeURIComponent(g.numero_ot||'')}')">
+                        📊 Excel
+                    </button>
+                    <button class="btn-cyan" onclick="imprimirDetalleInstalacion()">
+                        🖨 Imprimir
+                    </button>
+                </div>
+            </div>
+        </div>`);
+}
+
+function imprimirDetalleInstalacion() {
+    const area = document.getElementById('inst-det-printable');
+    if (!area) return;
+    const win = window.open('', '_blank', 'width=820,height=700');
+    win.document.write(`<!DOCTYPE html><html lang="es"><head>
+        <meta charset="UTF-8"><title>Instalación PROINTEL</title>
+        <style>
+            *{margin:0;padding:0;box-sizing:border-box}
+            body{font-family:'Segoe UI',Arial,sans-serif;color:#111;padding:2rem;max-width:760px;margin:0 auto}
+            .mfs-brand{font-size:1.8rem;font-weight:900;color:#0d1520}
+            .mfs-brand span{color:#00c8f0}
+            .mfs-brand-sub{font-size:.72rem;color:#636e72}
+            .mfs-head{display:flex;justify-content:space-between;align-items:flex-start;
+                      padding-bottom:1.2rem;border-bottom:3px solid #00c8f0;margin-bottom:1.4rem}
+            .mfs-tipo-badge{display:inline-block;font-size:.6rem;font-weight:700;letter-spacing:.12em;
+                color:#fff;background:#0d1520;padding:.25rem .7rem;border-radius:20px;
+                text-transform:uppercase;margin-bottom:.3rem}
+            .mfs-correlativo{font-size:1.2rem;font-weight:800;font-family:'Courier New',monospace}
+            .mfs-fecha{font-size:.78rem;color:#636e72;margin-top:.2rem}
+            .mfs-info-grid{display:grid;grid-template-columns:1fr 1fr;gap:.8rem;margin-bottom:1.4rem}
+            .mfs-info-card{background:#f8fafb;border-left:3px solid #00c8f0;border-radius:0 5px 5px 0;padding:.7rem .9rem}
+            .mfs-info-label{font-size:.62rem;font-weight:700;letter-spacing:.1em;color:#636e72;
+                text-transform:uppercase;margin-bottom:.2rem}
+            .mfs-info-val{font-size:.9rem;font-weight:600}
+            .mfs-tabla{width:100%;border-collapse:collapse;margin-bottom:1.2rem}
+            .mfs-tabla thead tr{background:#0d1520;color:#fff}
+            .mfs-tabla th{padding:.6rem .9rem;font-size:.76rem;text-align:left}
+            .mfs-tabla td{padding:.6rem .9rem;font-size:.85rem;border-bottom:1px solid #edf2f0}
+            .mfs-footer{margin-top:1.8rem;padding-top:.8rem;border-top:1px solid #edf2f0;
+                display:flex;justify-content:space-between;font-size:.7rem;color:#b2bec3}
+        </style>
+    </head><body>${area.innerHTML}</body></html>`);
+    win.document.close();
+    setTimeout(() => win.print(), 400);
+}
+
+// ── Exportar Excel de una OT específica ──────────────────────────────────────
+function exportarOTExcel(otEncoded) {
+    const ot   = decodeURIComponent(otEncoded);
+    const rows = (window._instaladas || []).filter(r =>
+        (r.numero_ot || String(r.correlativo_descargo)) === ot
+    );
+    if (!rows.length) { _notificar('Sin datos para exportar.'); return; }
+
+    exportarExcelInstalaciones(rows, `OT_${ot}`);
+}
+
+// ── Exportar Excel de TODAS las instalaciones ─────────────────────────────────
+function exportarInstaladasExcel() {
+    const rows = window._instaladas || [];
+    if (!rows.length) { _notificar('Sin datos para exportar.'); return; }
+    exportarExcelInstalaciones(rows, 'Instalaciones_PROINTEL');
+}
+
+function exportarExcelInstalaciones(rows, nombreArchivo) {
+    // Construir CSV con BOM para Excel (UTF-8)
+    const BOM = '\uFEFF';
+    const sep = ',';
+    const headers = ['Correlativo','OT/Solicitud','Artículo','Código','Cantidad','Cliente','Fecha'];
+    const filas   = rows.map(r => [
+        r.correlativo_descargo || '—',
+        r.numero_ot            || '—',
+        r.artNombre            || '—',
+        r.artCodigo            || '—',
+        r.cantidad_usada       || 1,
+        r.cliente              || '—',
+        r.fecha ? new Date(r.fecha).toLocaleDateString('es-SV') : '—',
+    ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(sep));
+
+    const csv  = BOM + [headers.join(sep), ...filas].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `${nombreArchivo}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    _mostrarToastExito(`✅ Exportado: ${nombreArchivo}.csv`);
 }
 async function guardarDescargo(e) {
     e.preventDefault();
