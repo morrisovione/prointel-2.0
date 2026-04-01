@@ -2646,28 +2646,31 @@ async function cargarSalidas() {
         <div class="inv-toolbar">
             <div class="search-bar" style="flex:1">
                 <input type="text" id="sal-search"
-                    placeholder="🔍  Buscar por correlativo, artículo, técnico…"
+                    placeholder="🔍  Buscar por correlativo, técnico, fecha…"
                     oninput="filtrarTabla('sal-search','tabla-salidas')" />
             </div>
         </div>
         <div class="table-wrap">
             <table class="data-table" id="tabla-salidas">
                 <thead><tr>
-                    <th>#</th><th>CORRELATIVO</th><th>ARTÍCULO</th>
-                    <th>CANTIDAD</th><th>TÉCNICO</th><th>FECHA</th><th>VER</th>
+                    <th>#</th>
+                    <th>CORRELATIVO</th>
+                    <th>ARTÍCULOS</th>
+                    <th>TÉCNICO</th>
+                    <th>FECHA</th>
+                    <th>FACTURA</th>
                 </tr></thead>
                 <tbody id="sal-tbody">
-                    <tr><td colspan="7" class="empty-row">⏳ Cargando…</td></tr>
+                    <tr><td colspan="6" class="empty-row">⏳ Cargando…</td></tr>
                 </tbody>
             </table>
         </div>
         <p class="table-count" id="sal-count"></p>`;
 
     try {
-        // Consulta con join FK — articulos(nombre,codigo) gracias al puente SQL
         let query = window.supabase
             .from('registros_salida')
-            .select('id, correlativo, articulo_id, tecnico_id, cantidad, fecha, firma, nombre_articulo, despachado_por')
+            .select('id, correlativo, articulo_id, tecnico_id, cantidad, fecha, nombre_articulo, despachado_por')
             .order('correlativo', { ascending: false });
 
         if (esTec && currentUser?.id) {
@@ -2675,21 +2678,11 @@ async function cargarSalidas() {
         }
 
         const { data: salidas, error } = await query;
+        if (error) throw error;
 
-        // Fallback: si el join falla, traer sin relación
-        let rows = salidas;
-        if (error) {
-            console.warn('PROINTEL — join articulos falló, usando fallback:', error.message);
-            const { data: fallback } = await window.supabase
-                .from('registros_salida')
-                .select('id, correlativo, articulo_id, tecnico_id, cantidad, fecha, firma, nombre_articulo')
-                .order('correlativo', { ascending: false });
-            rows = fallback || [];
-        }
+        cacheSalidas = salidas || [];
 
-        cacheSalidas = rows || [];
-
-        // Enriquecer técnicos por separado
+        // Enriquecer técnicos
         const tecIds = [...new Set(cacheSalidas.map(s => s.tecnico_id).filter(Boolean))];
         let usrMap = {};
         if (tecIds.length) {
@@ -2697,70 +2690,91 @@ async function cargarSalidas() {
                 .from('usuarios')
                 .select('id, nombre_completo, usuario')
                 .in('id', tecIds);
-            (usrs || []).forEach(u => { usrMap[u.id] = u; });
+            (usrs||[]).forEach(u => { usrMap[u.id] = u; });
         }
 
+        // Agrupar por correlativo — una fila por factura
+        const porCorrelativo = {};
+        cacheSalidas.forEach(s => {
+            const key = s.correlativo || s.id;
+            if (!porCorrelativo[key]) {
+                porCorrelativo[key] = {
+                    correlativo:  s.correlativo,
+                    tecnico_id:   s.tecnico_id,
+                    fecha:        s.fecha,
+                    items:        [],
+                    // Guardar el id del primer registro para el VER
+                    primer_id:    s.id,
+                };
+            }
+            porCorrelativo[key].items.push(s);
+        });
+
+        const grupos = Object.values(porCorrelativo);
+
         // Stats
-        const tot  = cacheSalidas.length;
-        const uniq = new Set(cacheSalidas.map(s => s.correlativo)).size;
+        const tot  = grupos.length;
+        const lineas = cacheSalidas.length;
         document.getElementById('sal-stats').innerHTML = `
             <div class="istat">
                 <span class="istat-num">${tot}</span>
-                <span class="istat-label">Líneas totales</span>
+                <span class="istat-label">Facturas emitidas</span>
             </div>
             <div class="istat istat-cyan">
-                <span class="istat-num">${uniq}</span>
-                <span class="istat-label">Correlativos</span>
+                <span class="istat-num">${lineas}</span>
+                <span class="istat-label">Líneas de detalle</span>
             </div>`;
 
         const tbody = document.getElementById('sal-tbody');
         const count = document.getElementById('sal-count');
 
-        if (!cacheSalidas.length) {
-            tbody.innerHTML = '<tr><td colspan="7" class="empty-row">No hay registros de salidas.</td></tr>';
+        if (!grupos.length) {
+            tbody.innerHTML = '<tr><td colspan="6" class="empty-row">No hay salidas registradas.</td></tr>';
             if (count) count.textContent = '';
             return;
         }
 
-        tbody.innerHTML = cacheSalidas.map((s, idx) => {
-            // El join devuelve s.articulos como objeto; el fallback lo omite
-            const art   = s.articulos || {};
-            const usr   = usrMap[s.tecnico_id] || {};
-            const fecha = s.fecha
-                ? new Date(s.fecha).toLocaleDateString('es-SV')
+        tbody.innerHTML = grupos.map((g, idx) => {
+            const usr   = usrMap[g.tecnico_id] || {};
+            const fecha = g.fecha
+                ? new Date(g.fecha).toLocaleDateString('es-SV')
                 : '—';
+
+            // Resumen de artículos
+            const nItems  = g.items.length;
+            const resumen = g.items
+                .slice(0, 2)
+                .map(i => esc(i.nombre_articulo || '—'))
+                .join(', ')
+                + (nItems > 2 ? ` +${nItems - 2} más` : '');
+
             return `<tr>
                 <td class="row-num">${idx + 1}</td>
-                <td><code class="sku-code">#${s.correlativo || '—'}</code></td>
-                <td class="td-bold">
-                    ${esc(art.nombre || s.nombre_articulo || '—')}
-                    ${art.codigo
-                        ? `<br><span style="font-size:.7rem;color:var(--dim)">${esc(art.codigo)}</span>`
-                        : ''}
-                </td>
-                <td style="font-family:var(--font-mono)">
-                    ${s.cantidad || 1} ${esc(art.unidad_medida || 'und')}
-                </td>
+                <td><code class="sku-code">#${g.correlativo || '—'}</code></td>
                 <td style="font-size:.82rem">
+                    <span class="series-count-badge" style="margin-right:.3rem">${nItems}</span>
+                    ${resumen}
+                </td>
+                <td style="font-size:.84rem">
                     ${esc(usr.nombre_completo || usr.usuario || '—')}
                 </td>
                 <td class="td-date">${fecha}</td>
                 <td>
                     <button class="act-btn act-edit"
-                        onclick="verFacturaSalida('${s.id}')">👁 Ver</button>
+                        onclick="verFacturaSalidaGrupo(${g.correlativo})">
+                        👁 Ver
+                    </button>
                 </td>
             </tr>`;
         }).join('');
 
         if (count) count.textContent =
-            `${tot} línea${tot !== 1 ? 's' : ''} · ${uniq} correlativo${uniq !== 1 ? 's' : ''}`;
+            `${tot} factura${tot !== 1 ? 's' : ''} · ${lineas} línea${lineas !== 1 ? 's' : ''}`;
 
     } catch (err) {
         console.error('PROINTEL — cargarSalidas:', err);
         document.getElementById('sal-tbody').innerHTML =
-            `<tr><td colspan="7" class="empty-row error-msg">
-                ❌ ${esc(err.message)}
-            </td></tr>`;
+            `<tr><td colspan="6" class="empty-row error-msg">❌ ${esc(err.message)}</td></tr>`;
     }
 }
 
@@ -2798,6 +2812,154 @@ function renderSalidas(filas) {
 }
 
 // ── Vale de Salida — visor e impresión ───────────────────
+async function verFacturaSalidaGrupo(correlativo) {
+    document.getElementById('modal-factura-salida')?.remove();
+
+    document.body.insertAdjacentHTML('beforeend', `
+        <div class="modal-overlay" id="modal-factura-salida" onclick="event.stopPropagation()">
+            <div class="modal-content mfs-content" onclick="event.stopPropagation()">
+                <div class="modal-head">
+                    <div class="modal-head-left">
+                        <span class="modal-icon">🧾</span>
+                        <span>Factura #${correlativo}</span>
+                    </div>
+                    <button class="modal-close"
+                        onclick="document.getElementById('modal-factura-salida').remove()">✕</button>
+                </div>
+                <div class="modal-body" id="mfs-body">
+                    <p style="padding:2rem;text-align:center;color:var(--dim)">⏳ Cargando…</p>
+                </div>
+                <div class="modal-foot">
+                    <button class="btn-ghost-sm"
+                        onclick="document.getElementById('modal-factura-salida').remove()">
+                        Cerrar
+                    </button>
+                    <button class="btn-cyan" onclick="imprimirFacturaSalida()">
+                        🖨 Imprimir / PDF
+                    </button>
+                </div>
+            </div>
+        </div>`);
+
+    try {
+        // Traer todas las líneas de este correlativo
+        const { data: lineas, error } = await window.supabase
+            .from('registros_salida')
+            .select('id, correlativo, articulo_id, tecnico_id, cantidad, fecha, nombre_articulo, despachado_por')
+            .eq('correlativo', correlativo)
+            .order('id', { ascending: true });
+
+        if (error) throw error;
+        if (!lineas?.length) throw new Error('No se encontraron registros para el correlativo #' + correlativo);
+
+        const primera = lineas[0];
+
+        // Enriquecer artículos
+        const artIds = [...new Set(lineas.map(l => l.articulo_id).filter(Boolean))];
+        let artMap = {};
+        if (artIds.length) {
+            const { data: arts } = await window.supabase
+                .from('articulos')
+                .select('id, nombre, codigo, unidad_medida')
+                .in('id', artIds);
+            (arts||[]).forEach(a => { artMap[a.id] = a; });
+        }
+
+        // Técnico
+        let tecNombre = primera.despachado_por ? `Recibido por: ${primera.despachado_por}` : '—';
+        if (primera.tecnico_id) {
+            const { data: tec } = await window.supabase
+                .from('usuarios')
+                .select('nombre_completo, usuario')
+                .eq('id', primera.tecnico_id)
+                .maybeSingle();
+            if (tec) tecNombre = tec.nombre_completo || tec.usuario || tecNombre;
+        }
+
+        const fecha = primera.fecha
+            ? new Date(primera.fecha).toLocaleDateString('es-SV', {
+                weekday:'long', day:'2-digit', month:'long', year:'numeric'
+              })
+            : '—';
+
+        // Filas de artículos
+        const filasHTML = lineas.map((l, i) => {
+            const art    = artMap[l.articulo_id] || {};
+            const nombre = art.nombre || l.nombre_articulo || '—';
+            const codigo = art.codigo || '';
+            const unidad = art.unidad_medida || 'und';
+            return `<tr>
+                <td class="row-num">${i + 1}</td>
+                <td class="td-bold">${esc(nombre)}</td>
+                <td><code style="font-size:.82rem;font-family:var(--font-mono)">
+                    ${esc(codigo || '—')}
+                </code></td>
+                <td style="text-align:center;font-weight:700;font-family:var(--font-mono)">
+                    ${l.cantidad || 1}
+                </td>
+                <td style="text-align:center;color:var(--dim)">${esc(unidad)}</td>
+            </tr>`;
+        }).join('');
+
+        document.getElementById('mfs-body').innerHTML = `
+            <div id="mfs-printable">
+
+                <div class="mfs-head">
+                    <div>
+                        <div class="mfs-brand">PRO<span>INTEL</span></div>
+                        <div class="mfs-brand-sub">Comprobante de Despacho de Material</div>
+                    </div>
+                    <div class="mfs-head-right">
+                        <div class="mfs-tipo-badge">SALIDA DE INVENTARIO</div>
+                        <div class="mfs-correlativo">#${correlativo}</div>
+                        <div class="mfs-fecha">${fecha}</div>
+                    </div>
+                </div>
+
+                <div class="mfs-info-grid">
+                    <div class="mfs-info-card">
+                        <div class="mfs-info-label">Técnico que recibe</div>
+                        <div class="mfs-info-val">${esc(tecNombre)}</div>
+                    </div>
+                    <div class="mfs-info-card">
+                        <div class="mfs-info-label">Entregado por</div>
+                        <div class="mfs-info-val">
+                            ${esc(primera.despachado_por || 'Bodega Central')}
+                        </div>
+                    </div>
+                </div>
+
+                <table class="mfs-tabla">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Artículo / Material</th>
+                            <th>Código</th>
+                            <th style="text-align:center">Cant.</th>
+                            <th style="text-align:center">Unidad</th>
+                        </tr>
+                    </thead>
+                    <tbody>${filasHTML}</tbody>
+                </table>
+
+                <div class="mfs-footer">
+                    <span>PROINTEL 2.0 — Sistema de Gestión Residencial</span>
+                    <span>Impreso el ${new Date().toLocaleDateString('es-SV')}</span>
+                </div>
+
+            </div>`;
+
+    } catch (err) {
+        console.error('PROINTEL — verFacturaSalidaGrupo:', err);
+        document.getElementById('mfs-body').innerHTML = `
+            <div style="padding:2rem;text-align:center">
+                <div style="font-size:2rem">❌</div>
+                <div style="color:var(--danger);font-weight:700;margin-top:.5rem">
+                    ${esc(err.message)}
+                </div>
+            </div>`;
+    }
+}
 async function verFacturaSalida(id) {
     document.getElementById('modal-factura-salida')?.remove();
 
