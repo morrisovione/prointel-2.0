@@ -5668,7 +5668,7 @@ async function cargarMisArticulos() {
                     <td style="font-size:.82rem">${esc(desp)}</td>
                     <td class="td-date">${fecha}</td>
                     <td>
-                        <button class="btn-cyan" style="font-size:.75rem;padding:.3rem .7rem"
+                        <button class="btn-cyan btn-ver-registro" style="font-size:.75rem;padding:.3rem .7rem"
                             onclick="verFacturaSalida('${h.id}')">
                             🧾 Ver PDF
                         </button>
@@ -5784,7 +5784,7 @@ async function cargarHistorialEntregas() {
                 <td style="font-size:.82rem">${esc(desp)}</td>
                 <td class="td-date">${fecha}</td>
                 <td>
-                    <button class="btn-cyan" style="font-size:.75rem;padding:.3rem .7rem"
+                    <button class="btn-cyan btn-ver-registro" style="font-size:.75rem;padding:.3rem .7rem"
                         onclick="verFacturaSalida('${h.id}')">
                         🧾 Ver PDF
                     </button>

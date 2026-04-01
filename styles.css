@@ -1255,12 +1255,16 @@ input  { font-family: inherit; }
 }
 
 /* Cuando body tiene data-rol="tecnico", reforzar con CSS */
-[data-rol="tecnico"] .btn-cyan,
+[data-rol="tecnico"] .btn-cyan:not(.btn-ver-registro),
 [data-rol="tecnico"] .act-btn.act-edit,
 [data-rol="tecnico"] .act-btn.act-del,
 [data-rol="tecnico"] #btn-importar,
 [data-rol="tecnico"] .drop-zone {
     display: none !important;
+}
+/* Botón VER del historial de entregas — siempre visible para técnico */
+[data-rol="tecnico"] .btn-ver-registro {
+    display: inline-flex !important;
 }
 
 /* Indicador visual de rol en el sidebar */
