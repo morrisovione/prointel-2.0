@@ -541,6 +541,11 @@ function cargarServicios() {
                 <div class="card-label">Test de Calidad</div>
                 <div class="card-sub">Verificar velocidad y latencia</div>
             </div>
+            <div class="summary-card" onclick="cargarInstaladas()">
+                <div class="card-icon">✅</div>
+                <div class="card-label">Instaladas</div>
+                <div class="card-sub">Ver mis descargos realizados</div>
+            </div>
 
             ` : `
             <!-- Tarjetas de admin/bodega -->
@@ -4932,7 +4937,7 @@ async function cargarMisArticulos() {
                 <table class="data-table" id="tabla-historial">
                     <thead><tr>
                         <th>#</th><th>CORRELATIVO</th><th>ARTÍCULO</th>
-                        <th>CANTIDAD</th><th>DESPACHADO POR</th><th>FECHA</th><th>FACTURA</th>
+                        <th>CANTIDAD</th><th>DESPACHADO POR</th><th>FECHA</th><th>REGISTRO</th>
                     </tr></thead>
                     <tbody id="hist-tbody">
                         <tr><td colspan="7" class="empty-row">⏳ Cargando…</td></tr>
@@ -4979,7 +4984,7 @@ async function cargarMisArticulos() {
         console.log('PROINTEL — historial uid:', uid);
         const { data: histRaw, error: histErr } = await window.supabase
             .from('registros_salida')
-            .select('id, correlativo, articulo_id, cantidad, fecha, nombre_articulo, despachado_por')
+            .select('id, correlativo, articulo_id, cantidad, fecha, nombre_articulo, despachado_por, tecnico_id')
             .eq('tecnico_id', uid)
             .order('correlativo', { ascending: false })
             .limit(50);
@@ -5118,9 +5123,9 @@ async function cargarMisArticulos() {
                     <td style="font-size:.82rem">${esc(desp)}</td>
                     <td class="td-date">${fecha}</td>
                     <td>
-                        <button class="act-btn act-edit"
+                        <button class="btn-cyan" style="font-size:.75rem;padding:.3rem .7rem"
                             onclick="verFacturaSalida('${h.id}')">
-                            📄 Ver
+                            🧾 Ver PDF
                         </button>
                     </td>
                 </tr>`;
@@ -5225,6 +5230,7 @@ async function abrirDescargos() {
             return `<option value="misc-${b.id}"
                 data-max="${b.cantidad || 0}"
                 data-tipo="misc"
+                data-es-misc="true"
                 data-inv-id="${b.id}"
                 data-art-id="${b.id}"
                 data-nombre="${esc(b.nombre || b.articulo || '')}"
@@ -5315,7 +5321,8 @@ function onDescItemChange(sel) {
     const maxStock = parseInt(opt.getAttribute('data-max') || 0);
     const codigo   = opt.getAttribute('data-codigo') || '';
     const unidad   = opt.getAttribute('data-unidad') || 'und';
-    const esMisc   = opt.getAttribute('data-es-misc') === 'true';
+    const esMisc   = opt.getAttribute('data-es-misc') === 'true'
+                     || opt.getAttribute('data-tipo') === 'misc';
 
     const cantEl  = document.getElementById('desc-cantidad');
     const badgeEl = document.getElementById('desc-stock-badge');
@@ -5325,17 +5332,25 @@ function onDescItemChange(sel) {
     const btnEl   = document.getElementById('btnGuardarDescargo');
 
     if (cantEl) {
-        cantEl.max   = maxStock;
-        cantEl.value = esMisc ? 1 : 1;
-        // Seriado: solo puede descargar 1
-        if (!esMisc) { cantEl.max = 1; cantEl.readOnly = true; }
-        else          { cantEl.readOnly = false; }
+        if (esMisc) {
+            // Misceláneo: permitir cantidad hasta el máximo disponible
+            cantEl.readOnly = false;
+            cantEl.min      = '1';
+            cantEl.max      = String(maxStock);
+            cantEl.value    = '1';
+        } else {
+            // Seriado: solo 1 unidad
+            cantEl.readOnly = true;
+            cantEl.min      = '1';
+            cantEl.max      = '1';
+            cantEl.value    = '1';
+        }
     }
-    if (errEl)  errEl.style.display = 'none';
-    if (btnEl)  btnEl.disabled = (maxStock <= 0);
+
+    if (errEl) errEl.style.display = 'none';
+    if (btnEl) btnEl.disabled = (maxStock <= 0);
 
     if (badgeEl) {
-        // Mostrar stock PERSONAL del técnico con unidad
         const ok = maxStock > 0;
         badgeEl.textContent   = ok
             ? `Mi stock: ${maxStock} ${unidad}`
@@ -5348,8 +5363,9 @@ function onDescItemChange(sel) {
     }
 
     if (codWrap && codVal) {
-        if (codigo) { codVal.textContent = codigo; codWrap.classList.remove('hidden'); }
-        else         { codWrap.classList.add('hidden'); }
+        const serie = opt.getAttribute('data-serie') || '';
+        if (serie) { codVal.textContent = serie; codWrap.classList.remove('hidden'); }
+        else        { codWrap.classList.add('hidden'); }
     }
 }
 
@@ -5372,6 +5388,120 @@ function validarCantidadDesc(input) {
 }
 
 
+async function cargarInstaladas() {
+    if (!currentUser) return;
+    const content = document.getElementById('dashboard-content');
+
+    content.innerHTML = `
+        <div class="module-header">
+            <h2>✅ Instalaciones Realizadas</h2>
+            <div class="header-actions">
+                <span class="su-name-badge">${esc(currentUser.nombre_completo || currentUser.usuario)}</span>
+                <button class="btn-nav" onclick="cargarInstaladas()">↺ Actualizar</button>
+            </div>
+        </div>
+        <div class="inv-stats" id="inst-stats">
+            <div class="istat loading-placeholder"></div>
+            <div class="istat loading-placeholder"></div>
+        </div>
+        <div class="inv-toolbar">
+            <div class="search-bar" style="flex:1">
+                <input type="text" id="inst-search"
+                    placeholder="🔍  Buscar por OT, cliente, artículo…"
+                    oninput="filtrarTabla('inst-search','tabla-inst')" />
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="data-table" id="tabla-inst">
+                <thead><tr>
+                    <th>#</th>
+                    <th>CORRELATIVO</th>
+                    <th>OT / SOLICITUD</th>
+                    <th>ARTÍCULO</th>
+                    <th>CANT. USADA</th>
+                    <th>CLIENTE</th>
+                    <th>FECHA</th>
+                </tr></thead>
+                <tbody id="inst-tbody">
+                    <tr><td colspan="7" class="empty-row">⏳ Cargando…</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="table-count" id="inst-count"></p>`;
+
+    try {
+        const { data: registros, error } = await window.supabase
+            .from('registros_instalaciones')
+            .select('id, correlativo_descargo, numero_ot, cliente, articulo_id, cantidad_usada, fecha')
+            .eq('tecnico_id', currentUser.id)
+            .order('correlativo_descargo', { ascending: false });
+
+        if (error) throw error;
+        const rows = registros || [];
+
+        // Enriquecer con nombre de artículo
+        const artIds = [...new Set(rows.map(r => r.articulo_id).filter(Boolean))];
+        let artMap = {};
+        if (artIds.length) {
+            const { data: arts } = await window.supabase
+                .from('articulos')
+                .select('id, nombre, codigo')
+                .in('id', artIds);
+            (arts||[]).forEach(a => { artMap[a.id] = a; });
+        }
+
+        // Stats
+        document.getElementById('inst-stats').innerHTML = `
+            <div class="istat">
+                <span class="istat-num">${rows.length}</span>
+                <span class="istat-label">Descargos realizados</span>
+            </div>
+            <div class="istat istat-cyan">
+                <span class="istat-num">${new Set(rows.map(r=>r.numero_ot)).size}</span>
+                <span class="istat-label">OTs distintas</span>
+            </div>`;
+
+        const tbody = document.getElementById('inst-tbody');
+        const count = document.getElementById('inst-count');
+
+        if (!rows.length) {
+            tbody.innerHTML = '<tr><td colspan="7" class="empty-row">No tienes descargos registrados aún.</td></tr>';
+            if (count) count.textContent = '';
+            return;
+        }
+
+        tbody.innerHTML = rows.map((r, idx) => {
+            const art   = artMap[r.articulo_id] || {};
+            const fecha = r.fecha
+                ? new Date(r.fecha).toLocaleDateString('es-SV')
+                : '—';
+            return `<tr>
+                <td class="row-num">${idx+1}</td>
+                <td><code class="sku-code">#${r.correlativo_descargo||'—'}</code></td>
+                <td style="font-family:var(--font-mono);font-weight:600">
+                    ${esc(r.numero_ot||'—')}
+                </td>
+                <td class="td-bold">
+                    ${esc(art.nombre||'—')}
+                    ${art.codigo
+                        ? `<br><span style="font-size:.7rem;color:var(--dim)">${esc(art.codigo)}</span>`
+                        : ''}
+                </td>
+                <td style="font-family:var(--font-mono)">${r.cantidad_usada||'—'}</td>
+                <td style="font-size:.82rem">${esc(r.cliente||'—')}</td>
+                <td class="td-date">${fecha}</td>
+            </tr>`;
+        }).join('');
+
+        if (count) count.textContent =
+            `${rows.length} descargo${rows.length!==1?'s':''}`;
+
+    } catch (err) {
+        console.error('PROINTEL — cargarInstaladas:', err);
+        document.getElementById('inst-tbody').innerHTML =
+            `<tr><td colspan="7" class="empty-row error-msg">❌ ${esc(err.message)}</td></tr>`;
+    }
+}
 async function guardarDescargo(e) {
     e.preventDefault();
 
