@@ -556,11 +556,7 @@ function cargarServicios() {
                 <div class="card-label">Bodega / Series</div>
                 <div class="card-sub">Ver inventario completo</div>
             </div>
-            <div class="summary-card" onclick="changeTab('facturas')">
-                <div class="card-icon">🧾</div>
-                <div class="card-label">Facturación</div>
-                <div class="card-sub">Consultar facturas emitidas</div>
-            </div>
+
             <div class="summary-card" id="card-usuarios" onclick="changeTab('usuarios')">
                 <div class="card-icon">👤</div>
                 <div class="card-label">Usuarios</div>
@@ -1803,6 +1799,7 @@ async function cargarInventarioBodega() {
                 <option value="">Todos los tipos</option>
                 <option value="seriado">Seriado</option>
                 <option value="miscelaneo">Misceláneos</option>
+                <option value="mano_de_obra">Mano de Obra</option>
             </select>
             <select id="filtro-estado" onchange="filtrarBodegaLive()" class="filter-select">
                 <option value="">Todos los estados</option>
@@ -2026,6 +2023,14 @@ function abrirModalArticulo(id) {
                                 <span class="tipo-icon">📦</span>
                                 <span class="tipo-name">Misceláneos</span>
                                 <span class="tipo-desc">Cables, grapas, consumibles — sin serie</span>
+                            </label>
+                            <label class="tipo-opt ${tipoActual==='mano_de_obra'?'active':''}">
+                                <input type="radio" name="tipo_material" value="mano_de_obra"
+                                    ${tipoActual==='mano_de_obra'?'checked':''}
+                                    onchange="onTipoMaterialChange(this)" />
+                                <span class="tipo-icon">🔧</span>
+                                <span class="tipo-name">Mano de Obra</span>
+                                <span class="tipo-desc">Servicios y trabajos — tiene código propio</span>
                             </label>
                         </div>
                     </div>
@@ -2853,6 +2858,20 @@ async function verFacturaSalida(id) {
                 artCodigo    = artFK.codigo        || '';
                 artUnidad    = artFK.unidad_medida || 'und';
                 artCategoria = artFK.categoria     || '';
+            }
+        }
+
+        // Fallback: buscar en bodega por nombre_articulo si artCodigo sigue vacío
+        if (!artCodigo && registro.nombre_articulo) {
+            const { data: bdFB } = await window.supabase
+                .from('bodega')
+                .select('codigo, unidad')
+                .ilike('nombre', registro.nombre_articulo)
+                .limit(1)
+                .maybeSingle();
+            if (bdFB) {
+                artCodigo = bdFB.codigo || '';
+                artUnidad = bdFB.unidad || artUnidad;
             }
         }
 
@@ -4101,6 +4120,9 @@ async function cargarPuestasServicio() {
         const tecIds = [...new Set(rows.map(r => r.tecnico_id).filter(Boolean))];
         let artMap = {}, tecMap = {};
 
+        // También recolectar IDs de bodega para artículos sin articulo_id BIGINT
+        const bodegaIds = [...new Set(rows.filter(r => !r.articulo_id).map(r => r.id).filter(Boolean))];
+
         const [resArts, resTecs] = await Promise.all([
             artIds.length
                 ? window.supabase.from('articulos').select('id, nombre, codigo').in('id', artIds)
@@ -4112,12 +4134,19 @@ async function cargarPuestasServicio() {
         (resArts.data||[]).forEach(a => { artMap[a.id] = a; });
         (resTecs.data||[]).forEach(t => { tecMap[t.id] = t; });
 
-        const rowsRich = rows.map(r => ({
-            ...r,
-            artNombre: artMap[r.articulo_id]?.nombre || '—',
-            artCodigo: artMap[r.articulo_id]?.codigo || '',
-            tecNombre: tecMap[r.tecnico_id]?.nombre_completo || tecMap[r.tecnico_id]?.usuario || '—',
-        }));
+        // Para filas sin articulo_id, usar nombre_articulo del registro o bodega
+        const rowsRich = rows.map(r => {
+            const art      = artMap[r.articulo_id] || {};
+            // nombre_articulo se guardó directamente en guardarDescargo
+            const nombre   = art.nombre || r.nombre_articulo || '—';
+            const codigo   = art.codigo || r.codigo_articulo || '';
+            return {
+                ...r,
+                artNombre: nombre,
+                artCodigo: codigo,
+                tecNombre: tecMap[r.tecnico_id]?.nombre_completo || tecMap[r.tecnico_id]?.usuario || '—',
+            };
+        });
 
         window._puestasServicio = rowsRich;
 
@@ -5328,6 +5357,7 @@ async function cargarMisArticulos() {
         const esMiscFn = b => {
             const t = (b.tipo_material || '').toLowerCase().trim();
             return t === 'miscelaneo' || t === 'misceláneos' || t === 'misceláneo'
+                || t === 'mano_de_obra' || t === 'mano de obra'
                 || (!t && !b.serie && (b.cantidad || 0) > 0);
         };
         const misc     = todos.filter(b => esMiscFn(b));
@@ -6224,14 +6254,15 @@ async function guardarDescargo(e) {
         for (const item of lista) {
             const payload = {
                 correlativo_descargo,
-                tecnico_id:    currentUser.id,
-                numero_ot:     ot,
-                cliente:       destino,
-                articulo_id:   parseInt(item.artId) || null,
-                cantidad_usada: item.cantidad,
-                serie_id:      (item.serieId && !isNaN(parseInt(item.serieId)))
-                               ? parseInt(item.serieId) : null,
-                fecha:         new Date().toISOString(),
+                tecnico_id:      currentUser.id,
+                numero_ot:       ot,
+                cliente:         destino,
+                articulo_id:     parseInt(item.artId) || null,
+                nombre_articulo: item.nombre || null,  // guardar nombre directo
+                cantidad_usada:  item.cantidad,
+                serie_id:        (item.serieId && !isNaN(parseInt(item.serieId)))
+                                 ? parseInt(item.serieId) : null,
+                fecha:           new Date().toISOString(),
             };
 
             const { error: errDesc } = await window.supabase
