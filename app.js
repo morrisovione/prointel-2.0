@@ -5628,12 +5628,12 @@ function verDetalleInstalacion(otEncoded) {
                         onclick="document.getElementById('modal-inst-detalle').remove()">
                         Cerrar
                     </button>
-                    <button class="btn-outline-sm"
+                    <button class="btn-ghost-sm"
                         onclick="exportarOTExcel('${encodeURIComponent(g.numero_ot||'')}')">
-                        📊 Excel
+                        📊 Descargar Excel
                     </button>
                     <button class="btn-cyan" onclick="imprimirDetalleInstalacion()">
-                        🖨 Imprimir
+                        🖨 Imprimir / PDF
                     </button>
                 </div>
             </div>
