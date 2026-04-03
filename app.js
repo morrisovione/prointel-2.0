@@ -6093,14 +6093,14 @@ async function cargarInstaladas() {
     try {
         const { data: registros, error } = await window.supabase
             .from('registros_instalaciones')
-            .select('id, correlativo_descargo, numero_ot, cliente, articulo_id, cantidad_usada, fecha')
+            .select('id, correlativo_descargo, numero_ot, cliente, articulo_id, nombre_articulo, cantidad_usada, serie_id, fecha')
             .eq('tecnico_id', currentUser.id)
             .order('correlativo_descargo', { ascending: false });
 
         if (error) throw error;
         const rows = registros || [];
 
-        // Enriquecer artículos
+        // Enriquecer artículos desde tabla articulos
         const artIds = [...new Set(rows.map(r => r.articulo_id).filter(Boolean))];
         let artMap = {};
         if (artIds.length) {
@@ -6109,10 +6109,20 @@ async function cargarInstaladas() {
             (arts||[]).forEach(a => { artMap[a.id] = a; });
         }
 
+        // Obtener número de serie real desde bodega usando serie_id (= bodega.id)
+        const serieIds = [...new Set(rows.map(r => r.serie_id).filter(Boolean))];
+        let serieMap = {};
+        if (serieIds.length) {
+            const { data: bodegas } = await window.supabase
+                .from('bodega').select('id, serie, nombre, codigo').in('id', serieIds);
+            (bodegas||[]).forEach(b => { serieMap[b.id] = b; });
+        }
+
         const rowsRich = rows.map(r => ({
             ...r,
-            artNombre: artMap[r.articulo_id]?.nombre || '—',
+            artNombre: artMap[r.articulo_id]?.nombre || r.nombre_articulo || '—',
             artCodigo: artMap[r.articulo_id]?.codigo || '',
+            serieNum:  serieMap[r.serie_id]?.serie   || '',
             tecNombre: currentUser.nombre_completo || currentUser.usuario || '—',
             tecnico_id: currentUser.id,
         }));
@@ -6218,12 +6228,12 @@ async function verDetalleInstalacion(keyEncoded) {
             <td class="row-num">${i+1}</td>
             <td>
                 <input type="text" class="ps-input-serie"
-                    value="${esc(r.artCodigo||'')}" readonly
-                    placeholder="Serie" style="width:90px" />
+                    value="${esc(r.serieNum||'—')}" readonly
+                    placeholder="Serie" style="width:110px" />
             </td>
             <td>
                 <input type="text" class="ps-input-codigo"
-                    value="${esc(r.artCodigo||'')}" readonly
+                    value="${esc(r.artCodigo||'—')}" readonly
                     style="width:90px" />
             </td>
             <td class="td-bold" style="min-width:180px">${esc(r.artNombre||'—')}</td>
