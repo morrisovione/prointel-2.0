@@ -5908,7 +5908,7 @@ async function abrirDescargos() {
                         <label>MATERIAL DESCARGADO <span class="req">*</span>
                             <span id="desc-stock-badge" class="series-count-badge" style="display:none"></span>
                         </label>
-                        <select id="desc-item" required onchange="onDescItemChange(this)"
+                        <select id="desc-item" onchange="onDescItemChange(this)"
                             class="filter-select" style="width:100%">
                             <option value="">— Seleccionar de mi bodega —</option>
                             ${optsItems}
