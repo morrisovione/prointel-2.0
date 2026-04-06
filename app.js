@@ -3186,7 +3186,7 @@ async function verFacturaSalidaGrupo(correlativo) {
         // Traer todas las líneas de este correlativo
         const { data: lineas, error } = await window.supabase
             .from('registros_salida')
-            .select('id, correlativo, articulo_id, tecnico_id, cantidad, fecha, nombre_articulo, despachado_por')
+            .select('id, correlativo, articulo_id, tecnico_id, cantidad, fecha, nombre_articulo, despachado_por, numero_serie')
             .eq('correlativo', correlativo)
             .order('id', { ascending: true });
 
@@ -3229,12 +3229,16 @@ async function verFacturaSalidaGrupo(correlativo) {
             const nombre = art.nombre || l.nombre_articulo || '—';
             const codigo = art.codigo || '';
             const unidad = art.unidad_medida || 'und';
+            const serie  = l.numero_serie || 'N/A';
             return `<tr>
                 <td class="row-num">${i + 1}</td>
                 <td class="td-bold">${esc(nombre)}</td>
-                <td><code style="font-size:.82rem;font-family:var(--font-mono)">
+                <td><code style="font-size:.78rem;font-family:var(--font-mono)">
                     ${esc(codigo || '—')}
                 </code></td>
+                <td style="font-size:.78rem;font-family:var(--font-mono)">
+                    ${esc(serie)}
+                </td>
                 <td style="text-align:center;font-weight:700;font-family:var(--font-mono)">
                     ${l.cantidad || 1}
                 </td>
@@ -3276,8 +3280,9 @@ async function verFacturaSalidaGrupo(correlativo) {
                             <th>#</th>
                             <th>Artículo / Material</th>
                             <th>Código</th>
+                            <th>Serie</th>
                             <th style="text-align:center">Cant.</th>
-                            <th style="text-align:center">Unidad</th>
+                            <th style="text-align:center">Und.</th>
                         </tr>
                     </thead>
                     <tbody>${filasHTML}</tbody>
@@ -4423,6 +4428,7 @@ async function guardarSalida(e) {
                 fecha:           ahora,
                 firma:           firma,
                 despachado_por:  currentUser?.nombre_completo || currentUser?.usuario || null,
+                numero_serie:    item.serie || null,
             };
         });
 
