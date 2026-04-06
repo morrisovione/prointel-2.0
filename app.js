@@ -2752,19 +2752,47 @@ async function guardarArticulo(e, id) {
                     if (error) throw error;
                 }
 
-                // b) Insertar las series NUEVAS como filas independientes
+                // b) Insertar las series NUEVAS — verificar que no existan ya
                 if (nuevas.length > 0) {
-                    const inserts = nuevas.map(s => ({ ...payloadBase, serie: s, estado: 'disponible' }));
-                    const { error: errIns } = await window.supabase.from('bodega').insert(inserts);
-                    if (errIns) throw errIns;
+                    // Filtrar series que ya existen en bodega
+                    const { data: existentes } = await window.supabase
+                        .from('bodega')
+                        .select('serie')
+                        .in('serie', nuevas);
+                    const yaExisten = new Set((existentes||[]).map(r => r.serie));
+                    const paraInsertar = nuevas.filter(s => !yaExisten.has(s));
+
+                    if (yaExisten.size > 0) {
+                        _notificar(`⚠️ ${yaExisten.size} serie(s) ya existen en bodega y se omitieron.`);
+                    }
+                    if (paraInsertar.length > 0) {
+                        const inserts = paraInsertar.map(s => ({ ...payloadBase, serie: s, estado: 'disponible' }));
+                        const { error: errIns } = await window.supabase.from('bodega').insert(inserts);
+                        if (errIns) throw errIns;
+                    }
                 }
 
             } else {
                 // NUEVO: insertar una fila por cada serie
                 const series = todasSeries.map(s => typeof s === 'string' ? s : s.serie);
-                const registros = series.map(s => ({ ...payloadBase, serie: s, estado: 'disponible' }));
-                const { error } = await window.supabase.from('bodega').insert(registros);
-                if (error) throw error;
+                // Verificar duplicados antes de insertar
+                const { data: dupCheck } = await window.supabase
+                    .from('bodega').select('serie').in('serie', series);
+                const yaExistenNuevo = new Set((dupCheck||[]).map(r => r.serie));
+                const seriesValidas  = series.filter(s => !yaExistenNuevo.has(s));
+
+                if (yaExistenNuevo.size > 0) {
+                    _notificar(`⚠️ ${yaExistenNuevo.size} serie(s) ya existen y se omitieron.`);
+                }
+                if (seriesValidas.length > 0) {
+                    const registros = seriesValidas.map(s => ({ ...payloadBase, serie: s, estado: 'disponible' }));
+                    const { error } = await window.supabase.from('bodega').insert(registros);
+                    if (error) throw error;
+                } else if (yaExistenNuevo.size > 0 && seriesValidas.length === 0) {
+                    _notificar('Todas las series ya existen en bodega.');
+                    if (btn) { btn.disabled = false; btn.textContent = 'Guardar'; }
+                    return;
+                }
             }
 
         } else {
