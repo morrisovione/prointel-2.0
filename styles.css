@@ -2898,3 +2898,11 @@ code.serie-code {
     border-color: var(--border-cyan);
 }
 .ps-art-row td { padding: .5rem .7rem; }
+
+/* Serie chip inactivo (ya entregado/instalado) */
+.serie-chip.chip-inactivo {
+    opacity: .55;
+    background: rgba(255,77,109,.08);
+    border-color: rgba(255,77,109,.2);
+    cursor: default;
+}

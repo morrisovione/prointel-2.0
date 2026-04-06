@@ -1888,53 +1888,114 @@ async function cargarInventarioBodega() {
 function renderInventario(filas) {
     const tbody = document.getElementById('bodega-tbody');
     const count = document.getElementById('bodega-count');
+
     if (!filas || !filas.length) {
         tbody.innerHTML = '<tr><td colspan="10" class="empty-row">No hay artículos en bodega.</td></tr>';
         if (count) count.textContent = '';
         return;
     }
 
-    tbody.innerHTML = filas.map((item, idx) => {
-        const esSeriado = !item.tipo_material || item.tipo_material === 'seriado';
-        const serie = item.serie || item.serie || '';
-        const tipoBadge = esSeriado
-            ? `<span class="tipo-badge tipo-seriado">SERIADO</span>`
+    // Separar seriados y misceláneos
+    const ESTADOS_INACTIVOS = ['vendido','instalado','agotado','entregado'];
+    const seriados   = filas.filter(i => !i.tipo_material || i.tipo_material === 'seriado');
+    const miscs      = filas.filter(i => i.tipo_material && i.tipo_material !== 'seriado');
+
+    // Agrupar seriados por nombre+codigo
+    const gruposMap = {};
+    seriados.forEach(i => {
+        const key = (i.nombre || i.articulo || '') + '||' + (i.codigo || '');
+        if (!gruposMap[key]) gruposMap[key] = {
+            nombre:   i.nombre || i.articulo || '—',
+            codigo:   i.codigo || '',
+            precio:   i.precio || 0,
+            cuadrilla: i.cuadrilla || '',
+            estado:   i.estado || 'disponible',
+            notas:    i.notas || '',
+            items:    [],
+            primerID: i.id,
+        };
+        gruposMap[key].items.push(i);
+    });
+
+    // Renderizar seriados agrupados
+    const filasGrupos = Object.values(gruposMap).map((g, idx) => {
+        const disponibles = g.items.filter(i =>
+            !ESTADOS_INACTIVOS.includes((i.estado||'').toLowerCase())
+        ).length;
+        const total = g.items.length;
+        const clave = encodeURIComponent(g.nombre + '||' + g.codigo);
+
+        return `<tr ${disponibles === 0 ? 'style="opacity:.5"' : ''}>
+            <td class="row-num">${idx + 1}</td>
+            <td>
+                <div class="td-nombre">${esc(g.nombre)}</div>
+                ${g.cuadrilla ? `<div class="td-sub">${esc(g.cuadrilla)}</div>` : ''}
+            </td>
+            <td><span class="sku-code">${esc(g.codigo || '—')}</span></td>
+            <td><span class="tipo-badge tipo-seriado">SERIADO</span></td>
+            <td>—</td>
+            <td class="text-center">
+                <span class="series-count-badge"
+                    title="${total} series totales">${disponibles}</span>
+                ${total !== disponibles
+                    ? `<span style="font-size:.7rem;color:var(--dim);margin-left:.2rem">/${total}</span>`
+                    : ''}
+            </td>
+            <td class="td-price">$${parseFloat(g.precio||0).toFixed(2)}</td>
+            <td><span class="badge badge-${(g.estado||'disponible').toLowerCase()}">${esc(g.estado||'disponible')}</span></td>
+            <td class="td-date">—</td>
+            <td class="action-row">
+                <button class="act-btn act-edit"
+                    title="Editar grupo / agregar series"
+                    onclick="abrirModalGrupo('${clave}')">✎</button>
+                <button class="act-btn act-edit"
+                    title="Ver todas las series"
+                    style="background:rgba(0,200,240,.1);color:var(--cyan)"
+                    onclick="verSeriesGrupo('${clave}')">☰</button>
+            </td>
+        </tr>`;
+    });
+
+    // Renderizar misceláneos (sin agrupar)
+    const filasMisc = miscs.map((item, idx) => {
+        const idxNum = Object.values(gruposMap).length + idx + 1;
+        const esMO   = item.tipo_material === 'mano_de_obra';
+        const badge  = esMO
+            ? `<span class="tipo-badge" style="background:rgba(243,156,18,.15);color:#f39c12;border:1px solid rgba(243,156,18,.3)">MANO OBRA</span>`
             : `<span class="tipo-badge tipo-cantidad">MISCELÁNEOS</span>`;
-        const serieTd = esSeriado
-            ? `<td><code class="serie-code">${esc(serie || '—')}</code></td>`
-            : `<td class="text-muted">—</td>`;
-        const cantTd = esSeriado
-            ? `<td class="text-center text-muted">1</td>`
-            : `<td class="text-center td-bold">${item.cantidad || 1}</td>`;
 
-        return `
-            <tr>
-                <td class="row-num">${idx + 1}</td>
-                <td>
-                    <div class="td-nombre">${esc(item.nombre || item.articulo || '—')}</div>
-                    ${item.categoria ? `<div class="td-sub">${esc(item.categoria)}</div>` : ''}
-                </td>
-                <td><span class="sku-code">${esc(item.codigo || '—')}</span></td>
-                <td>${tipoBadge}</td>
-                ${serieTd}
-                ${cantTd}
-                <td class="td-price">$${parseFloat(item.precio || 0).toFixed(2)}</td>
-                <td><span class="badge badge-${(item.estado||'disponible').toLowerCase()}">
-                    ${esc(item.estado || 'disponible')}
-                </span></td>
-                <td class="td-date">${formatFecha(item.fecha_ingreso)}</td>
-                <td>
-                    <div class="action-row">
-                        <button class="act-btn act-edit"
-                            onclick="abrirModalArticulo('${esc(String(item.id))}')">✎</button>
-                        <button class="act-btn act-del"
-                            onclick="eliminarArticulo('${esc(String(item.id))}','${esc(item.nombre||item.articulo||'')}')">✕</button>
-                    </div>
-                </td>
-            </tr>`;
-    }).join('');
+        return `<tr>
+            <td class="row-num">${idxNum}</td>
+            <td>
+                <div class="td-nombre">${esc(item.nombre || item.articulo || '—')}</div>
+                ${item.categoria ? `<div class="td-sub">${esc(item.categoria)}</div>` : ''}
+            </td>
+            <td><span class="sku-code">${esc(item.codigo || '—')}</span></td>
+            <td>${badge}</td>
+            <td>—</td>
+            <td class="text-center td-bold">${item.cantidad || 1}
+                <span style="font-size:.72rem;color:var(--dim)">${esc(item.unidad||'und')}</span>
+            </td>
+            <td class="td-price">$${parseFloat(item.precio||0).toFixed(2)}</td>
+            <td><span class="badge badge-${(item.estado||'disponible').toLowerCase()}">${esc(item.estado||'disponible')}</span></td>
+            <td class="td-date">${item.fecha_ingreso
+                ? new Date(item.fecha_ingreso).toLocaleDateString('es-SV')
+                : '—'}</td>
+            <td class="action-row">
+                <button class="act-btn act-edit"
+                    onclick="abrirModalArticulo('${esc(String(item.id))}')">✎</button>
+                <button class="act-btn act-del"
+                    onclick="eliminarArticulo('${esc(String(item.id))}','${esc(item.nombre||item.articulo||'')}')">✕</button>
+            </td>
+        </tr>`;
+    });
 
-    if (count) count.textContent = `${filas.length} artículo${filas.length !== 1 ? 's' : ''}`;
+    tbody.innerHTML = [...filasGrupos, ...filasMisc].join('');
+
+    const totalProductos = Object.keys(gruposMap).length + miscs.length;
+    const totalSeries    = seriados.length;
+    if (count) count.textContent =
+        `${totalProductos} producto${totalProductos!==1?'s':''} · ${totalSeries} serie${totalSeries!==1?'s':''} · ${miscs.length} misceláneo${miscs.length!==1?'s':''}`;
 }
 
 // ── Filtro en tiempo real ─────────────────────────────────
@@ -1978,6 +2039,214 @@ async function exportarInventarioCSV() {
 //  MODAL: NUEVO / EDITAR ARTÍCULO — dinámico con tipo switch
 // ════════════════════════════════════════════════════════════
 
+// ── Modal EDITAR grupo seriado ───────────────────────────────────────────────
+async function abrirModalGrupo(claveEncoded) {
+    const clave  = decodeURIComponent(claveEncoded);
+    const [nombre, codigo] = clave.split('||');
+
+    // Traer TODAS las series del grupo
+    const { data: series, error } = await window.supabase
+        .from('bodega')
+        .select('id, serie, estado, precio, cuadrilla, notas')
+        .eq('nombre', nombre)
+        .eq('tipo_material', 'seriado')
+        .order('fecha_ingreso', { ascending: true });
+
+    if (error) { _notificar('Error al cargar series: ' + error.message); return; }
+
+    const primerItem = series?.[0] || {};
+
+    // Construir chips de series existentes (readonly)
+    const seriesExistentes = (series || []).map(s => ({
+        id:    s.id,
+        serie: s.serie || '',
+        estado: s.estado || 'disponible',
+    }));
+
+    // Serializar para el form
+    const seriesJSON = JSON.stringify(seriesExistentes);
+
+    // Chips HTML — readonly (no eliminables si ya están en BD)
+    const ESTADOS_INACTIVOS = ['vendido','instalado','agotado','entregado'];
+    const chipsHTML = seriesExistentes.map(s => {
+        const inactivo = ESTADOS_INACTIVOS.includes((s.estado||'').toLowerCase());
+        return `<div class="serie-chip ${inactivo ? 'chip-inactivo' : ''}"
+                    title="${inactivo ? s.estado : 'En bodega'}">
+            ${esc(s.serie || '—')}
+            ${!inactivo ? '' : `<span style="font-size:.65rem;opacity:.6;margin-left:.2rem">(${s.estado})</span>`}
+        </div>`;
+    }).join('');
+
+    document.getElementById('modal-articulo')?.remove();
+    document.body.insertAdjacentHTML('beforeend', `
+        <div class="modal-overlay" id="modal-articulo" onclick="cerrarModal('modal-articulo')">
+            <div class="modal-content modal-inventario" onclick="event.stopPropagation()">
+
+                <div class="modal-head">
+                    <div class="modal-head-left">
+                        <span class="modal-icon">📦</span>
+                        <span>Editar: ${esc(nombre)}</span>
+                    </div>
+                    <button class="modal-close" onclick="cerrarModal('modal-articulo')">✕</button>
+                </div>
+
+                <form id="form-articulo" onsubmit="guardarArticulo(event, '${primerItem.id||''}')">
+                <input type="hidden" id="art-grupo-key" value="${esc(nombre + '||' + codigo)}" />
+
+                <div class="modal-body">
+                    <div class="form-grid">
+                        <div class="field">
+                            <label>NOMBRE *</label>
+                            <input type="text" id="art-nombre" value="${esc(nombre)}" required />
+                        </div>
+                        <div class="field">
+                            <label>CÓDIGO / SKU</label>
+                            <input type="text" id="art-codigo" value="${esc(codigo)}" />
+                        </div>
+                        <div class="field">
+                            <label>PRECIO</label>
+                            <input type="number" id="art-precio"
+                                value="${primerItem.precio||0}" min="0" step="0.01" />
+                        </div>
+                        <div class="field">
+                            <label>ESTADO</label>
+                            <select id="art-estado">
+                                <option value="disponible"
+                                    ${'disponible'===(primerItem.estado||'')?'selected':''}>Disponible</option>
+                                <option value="reservado"
+                                    ${'reservado'===(primerItem.estado||'')?'selected':''}>Reservado</option>
+                            </select>
+                        </div>
+                        <div class="field field-full">
+                            <label>NOTAS</label>
+                            <textarea id="art-notas" rows="2">${esc(primerItem.notas||'')}</textarea>
+                        </div>
+                        <div class="field field-full">
+                            <label>TIPO</label>
+                            <label class="radio-opt active">
+                                <input type="radio" name="tipo_material" value="seriado" checked
+                                    onchange="onTipoMaterialChange(this)" />
+                                <span>🔖 Seriado</span>
+                            </label>
+                        </div>
+
+                        <!-- Series existentes (readonly) -->
+                        <div class="field field-full">
+                            <label>
+                                SERIES EN BODEGA
+                                <span class="series-count-badge" style="margin-left:.4rem">
+                                    ${seriesExistentes.length}
+                                </span>
+                                <span style="font-size:.7rem;color:var(--dim);margin-left:.5rem">
+                                    Solo lectura — las activas no se pueden eliminar
+                                </span>
+                            </label>
+                            <div class="series-chips-wrap" style="min-height:40px">
+                                ${chipsHTML}
+                            </div>
+                        </div>
+
+                        <!-- Agregar nuevas series -->
+                        <div class="field field-full" id="sec-seriado">
+                            <label>AGREGAR NUEVAS SERIES</label>
+                            <div class="scanner-wrap">
+                                <input type="text" id="art-scanner"
+                                    placeholder="Escanea o escribe la serie y presiona Enter"
+                                    autocomplete="off"
+                                    onkeydown="if(event.key==='Enter'){event.preventDefault();agregarSerie();}" />
+                                <button type="button" class="btn-autogen"
+                                    onclick="agregarSerie()">+ Agregar</button>
+                            </div>
+                            <div id="art-series-chips" class="series-chips-wrap" style="min-height:32px"></div>
+                            <input type="hidden" id="art-series-json" value="[]" />
+                        </div>
+
+                        <div class="field">
+                            <label>CUADRILLA</label>
+                            <select id="art-cuadrilla-sel">
+                                <option value="">Sin cuadrilla</option>
+                                <option value="${esc(primerItem.cuadrilla||'')}">
+                                    ${esc(primerItem.cuadrilla||'—')}
+                                </option>
+                                <option value="__manual__">✍ Escribir manualmente</option>
+                            </select>
+                            <input type="text" id="art-cuadrilla-manual"
+                                placeholder="Código de cuadrilla"
+                                style="display:none;margin-top:.4rem" />
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-foot">
+                    <button type="button" class="btn-ghost-sm"
+                        onclick="cerrarModal('modal-articulo')">Cancelar</button>
+                    <button type="submit" class="btn-cyan" id="btn-guardar-art">
+                        Guardar cambios
+                    </button>
+                </div>
+                </form>
+            </div>
+        </div>`);
+}
+
+// ── Modal VER SERIES del grupo ────────────────────────────────────────────────
+async function verSeriesGrupo(claveEncoded) {
+    const clave  = decodeURIComponent(claveEncoded);
+    const [nombre, codigo] = clave.split('||');
+
+    const { data: series, error } = await window.supabase
+        .from('bodega')
+        .select('id, serie, estado, fecha_ingreso, cuadrilla, asignado_a')
+        .eq('nombre', nombre)
+        .eq('tipo_material', 'seriado')
+        .order('estado', { ascending: true });
+
+    if (error) { _notificar('Error: ' + error.message); return; }
+
+    document.getElementById('modal-ver-series')?.remove();
+    document.body.insertAdjacentHTML('beforeend', `
+        <div class="modal-overlay" id="modal-ver-series" onclick="event.stopPropagation()">
+            <div class="modal-content" style="max-width:640px" onclick="event.stopPropagation()">
+
+                <div class="modal-head">
+                    <div class="modal-head-left">
+                        <span class="modal-icon">☰</span>
+                        <span>${esc(nombre)} — ${(series||[]).length} series</span>
+                    </div>
+                    <button class="modal-close"
+                        onclick="document.getElementById('modal-ver-series').remove()">✕</button>
+                </div>
+
+                <div class="modal-body" style="padding:0">
+                    <table class="data-table">
+                        <thead><tr>
+                            <th>#</th><th>NÚMERO DE SERIE</th><th>ESTADO</th>
+                            <th>ASIGNADO A</th><th>FECHA</th>
+                        </tr></thead>
+                        <tbody>
+                            ${(series||[]).map((s, i) => `
+                            <tr>
+                                <td class="row-num">${i+1}</td>
+                                <td><code class="serie-code">${esc(s.serie||'—')}</code></td>
+                                <td><span class="badge badge-${(s.estado||'disponible').toLowerCase()}"
+                                    style="font-size:.72rem">${esc(s.estado||'—')}</span></td>
+                                <td style="font-size:.82rem">${esc(s.asignado_a||'—')}</td>
+                                <td class="td-date">${s.fecha_ingreso
+                                    ? new Date(s.fecha_ingreso).toLocaleDateString('es-SV') : '—'}</td>
+                            </tr>`).join('')}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="modal-foot">
+                    <button class="btn-ghost-sm"
+                        onclick="document.getElementById('modal-ver-series').remove()">Cerrar</button>
+                    <button class="btn-cyan"
+                        onclick="abrirModalGrupo('${claveEncoded}')">✎ Editar / Agregar series</button>
+                </div>
+            </div>
+        </div>`);
+}
 function abrirModalArticulo(id) {
     const item = id ? cacheInventario.find(i => String(i.id) === String(id)) : null;
     const esEdicion = !!item;
@@ -2424,22 +2693,19 @@ function mostrarAlertaInline(html, tipo) {
 async function guardarArticulo(e, id) {
     e.preventDefault();
 
-    // Leer tipo (seriado | miscelaneo)
-    const tipo   = document.querySelector('input[name="tipo_material"]:checked')?.value || 'seriado';
-    const nombre = document.getElementById('art-nombre').value.trim();
-    const codigo = document.getElementById('art-codigo').value.trim() || null;
-    const precio = parseFloat(document.getElementById('art-precio').value) || 0;
-    const estado = document.getElementById('art-estado').value;
-    const notas  = document.getElementById('art-notas').value.trim() || null;
+    const tipo    = document.querySelector('input[name="tipo_material"]:checked')?.value || 'seriado';
+    const nombre  = document.getElementById('art-nombre').value.trim();
+    const codigo  = document.getElementById('art-codigo').value.trim() || null;
+    const precio  = parseFloat(document.getElementById('art-precio').value) || 0;
+    const estado  = document.getElementById('art-estado').value;
+    const notas   = document.getElementById('art-notas').value.trim() || null;
 
-    // Validaciones obligatorias
     if (!nombre) { _notificar('El nombre del artículo es obligatorio.'); return; }
 
-    // Solo para seriados se exige al menos una serie
     if (tipo === 'seriado') {
         const series = JSON.parse(document.getElementById('art-series-json')?.value || '[]');
         if (!id && series.length === 0) {
-            alert('El artículo es Seriado. Debes agregar al menos una serie antes de guardar.');
+            _notificar('El artículo es Seriado. Agrega al menos una serie.');
             document.getElementById('art-scanner')?.focus();
             return;
         }
@@ -2448,42 +2714,61 @@ async function guardarArticulo(e, id) {
     const btn = document.getElementById('btn-guardar-art');
     if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
 
-    // Leer cuadrilla — prioriza manual sobre select
     const cuadSel    = document.getElementById('art-cuadrilla-sel')?.value || '';
     const cuadManual = (document.getElementById('art-cuadrilla-manual')?.value || '').trim().toUpperCase();
-    const cuadrilla  = cuadSel === '__manual__' ? (cuadManual || null)
-                     : cuadSel || null;
+    const cuadrilla  = cuadSel === '__manual__' ? (cuadManual || null) : cuadSel || null;
 
-    // Payload base — solo columnas que existen en bodega
-    const payloadBase = {
-        nombre,
-        articulo: nombre,
-        codigo,
-        precio,
-        estado,
-        notas,
-        cuadrilla,
-        tipo_material: tipo
-    };
+    const payloadBase = { nombre, articulo: nombre, codigo, precio, estado, notas, cuadrilla, tipo_material: tipo };
 
     try {
         if (tipo === 'seriado') {
-            const series = JSON.parse(document.getElementById('art-series-json')?.value || '[]');
+            const seriesJSON = document.getElementById('art-series-json')?.value || '[]';
+            const todasSeries = JSON.parse(seriesJSON);
 
             if (id) {
-                // Editar registro seriado existente
-                const payload = { ...payloadBase, serie: series[0] || null };
-                const { error } = await window.supabase.from('bodega').update(payload).eq('id', id);
-                if (error) throw error;
+                // EDICIÓN: separar series existentes (tienen id en chip) de series nuevas
+                const existentes = todasSeries.filter(s =>
+                    typeof s === 'object' && s.id
+                ).map(s => s.id);
+
+                const nuevas = todasSeries.filter(s =>
+                    typeof s === 'string' || (typeof s === 'object' && !s.id)
+                ).map(s => typeof s === 'string' ? s : s.serie);
+
+                // a) Actualizar campos comunes en TODAS las filas del mismo nombre+codigo
+                //    (precio, notas, cuadrilla, estado) — excepto la serie
+                const grupoKey = document.getElementById('art-grupo-key')?.value || '';
+                if (grupoKey) {
+                    const [nomGrupo, codGrupo] = grupoKey.split('||');
+                    await window.supabase.from('bodega')
+                        .update({ nombre, articulo: nombre, codigo, precio, notas, cuadrilla, estado })
+                        .eq('nombre', nomGrupo)
+                        .eq('tipo_material', 'seriado');
+                } else {
+                    // Fallback: actualizar solo el registro con id
+                    const { error } = await window.supabase.from('bodega')
+                        .update({ ...payloadBase, serie: todasSeries[0]?.serie || todasSeries[0] || null })
+                        .eq('id', id);
+                    if (error) throw error;
+                }
+
+                // b) Insertar las series NUEVAS como filas independientes
+                if (nuevas.length > 0) {
+                    const inserts = nuevas.map(s => ({ ...payloadBase, serie: s, estado: 'disponible' }));
+                    const { error: errIns } = await window.supabase.from('bodega').insert(inserts);
+                    if (errIns) throw errIns;
+                }
+
             } else {
-                // Insertar una fila por cada serie
-                const registros = series.map(s => ({ ...payloadBase, serie: s }));
+                // NUEVO: insertar una fila por cada serie
+                const series = todasSeries.map(s => typeof s === 'string' ? s : s.serie);
+                const registros = series.map(s => ({ ...payloadBase, serie: s, estado: 'disponible' }));
                 const { error } = await window.supabase.from('bodega').insert(registros);
                 if (error) throw error;
             }
 
         } else {
-            // Misceláneos — sin serie, con cantidad
+            // Misceláneos / Mano de Obra
             const cantidad = parseInt(document.getElementById('art-cantidad')?.value) || 1;
             const unidad   = document.getElementById('art-unidad')?.value.trim() || null;
             const payload  = { ...payloadBase, serie: null, cantidad };
@@ -2495,17 +2780,16 @@ async function guardarArticulo(e, id) {
             if (error) throw error;
         }
 
-        // Guardar cuadrilla manual en memoria de sesión si aplica
         if (cuadrilla) guardarCuadrillaManualSiAplica(cuadrilla);
-
-        cerrarModal('modal-articulo', true); // forzar = true
+        cerrarModal('modal-articulo', true);
         cacheInventario = [];
         cargarInventarioBodega();
 
     } catch (err) {
         alert('Error al guardar: ' + err.message);
+        console.error('PROINTEL — guardarArticulo:', err);
     } finally {
-        if (btn) { btn.disabled = false; btn.textContent = id ? 'Guardar cambios' : 'Registrar artículo'; }
+        if (btn) { btn.disabled = false; btn.textContent = 'Guardar'; }
     }
 }
 
