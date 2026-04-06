@@ -2615,46 +2615,58 @@ async function agregarSerie() {
     const serie = (input?.value || '').trim();
     if (!serie) return;
 
+    // Limpiar y reenfocar INMEDIATAMENTE para que la pistola
+    // pueda escanear la siguiente serie sin esperar la validación
+    input.value = '';
+    input.focus();
+
     // Validar duplicado local (en el modal)
     const jsonField = document.getElementById('art-series-json');
     const actuales  = JSON.parse(jsonField?.value || '[]');
     if (actuales.includes(serie)) {
         mostrarAlertaInline(`⚠ La serie "${serie}" ya está en la lista.`, 'warn');
-        input.value = ''; input.focus(); return;
+        return;
     }
 
-    // Validar duplicado en base de datos
+    // Agregar chip provisional inmediatamente (con indicador de validando)
+    const listaEl = document.getElementById('series-list');
+    const empty   = listaEl?.querySelector('.series-empty');
+    if (empty) empty.remove();
+
+    const chip = document.createElement('div');
+    chip.className = 'serie-chip serie-chip-validando';
+    chip.setAttribute('data-serie', serie);
+    chip.innerHTML = `<code>${esc(serie)}</code><span class="chip-validando">⏳</span>`;
+    listaEl?.appendChild(chip);
+
+    // Validar duplicado en base de datos (en background)
     const { data: existe } = await window.supabase
         .from('bodega')
-        .select('id, nombre, modelo')
+        .select('id, nombre')
         .eq('serie', serie)
         .maybeSingle();
 
     if (existe) {
+        // Eliminar chip provisional y mostrar error
+        chip.remove();
+        if ((JSON.parse(jsonField?.value || '[]')).length === 0) {
+            listaEl.innerHTML = '<span class="series-empty">Agrega series usando el campo de arriba o un escáner de código de barras.</span>';
+        }
         mostrarAlertaInline(
-            `⛔ La serie <strong>${serie}</strong> ya existe en bodega (${existe.nombre || existe.articulo || 'sin nombre'}).`,
+            `⛔ La serie <strong>${serie}</strong> ya existe en bodega (${existe.nombre || 'sin nombre'}).`,
             'error'
         );
-        input.select(); return;
+        actualizarContadorSeries(JSON.parse(jsonField?.value || '[]').length);
+        return;
     }
 
-    // Agregar a la lista
-    actuales.push(serie);
-    jsonField.value = JSON.stringify(actuales);
-
-    const chip = document.createElement('div');
+    // Validación OK — convertir chip provisional en definitivo
     chip.className = 'serie-chip';
-    chip.setAttribute('data-serie', serie);
     chip.innerHTML = `<code>${esc(serie)}</code><button type="button" onclick="quitarSerie(this,'${esc(serie)}')">✕</button>`;
 
-    const lista = document.getElementById('series-list');
-    const empty = lista.querySelector('.series-empty');
-    if (empty) empty.remove();
-    lista.appendChild(chip);
-
+    actuales.push(serie);
+    jsonField.value = JSON.stringify(actuales);
     actualizarContadorSeries(actuales.length);
-    input.value = '';
-    input.focus();
 }
 
 function quitarSerie(btn, serie) {
