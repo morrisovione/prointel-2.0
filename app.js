@@ -2615,21 +2615,21 @@ async function agregarSerie() {
     const serie = (input?.value || '').trim();
     if (!serie) return;
 
-    // Limpiar y reenfocar INMEDIATAMENTE para que la pistola
-    // pueda escanear la siguiente serie sin esperar la validación
+    // CRÍTICO: limpiar y reenfocar ANTES del await
+    // La pistola puede escanear la siguiente sin esperar la validación
     input.value = '';
     input.focus();
 
-    // Validar duplicado local (en el modal)
+    // Validar duplicado local (en el modal actual)
     const jsonField = document.getElementById('art-series-json');
     const actuales  = JSON.parse(jsonField?.value || '[]');
     if (actuales.includes(serie)) {
-        mostrarAlertaInline(`⚠ La serie "${serie}" ya está en la lista.`, 'warn');
+        mostrarAlertaInline(`⚠ La serie "${esc(serie)}" ya está en la lista.`, 'warn');
         return;
     }
 
-    // Agregar chip provisional inmediatamente (con indicador de validando)
-    const listaEl = document.getElementById('series-list');
+    // Mostrar chip provisional inmediatamente con indicador de validación
+    const listaEl = document.getElementById('art-series-chips');
     const empty   = listaEl?.querySelector('.series-empty');
     if (empty) empty.remove();
 
@@ -2639,34 +2639,51 @@ async function agregarSerie() {
     chip.innerHTML = `<code>${esc(serie)}</code><span class="chip-validando">⏳</span>`;
     listaEl?.appendChild(chip);
 
-    // Validar duplicado en base de datos (en background)
-    const { data: existe } = await window.supabase
-        .from('bodega')
-        .select('id, nombre')
-        .eq('serie', serie)
-        .maybeSingle();
+    // Validar duplicado en Supabase en background (no bloquea el input)
+    try {
+        const { data: existe } = await window.supabase
+            .from('bodega')
+            .select('id, nombre')
+            .eq('serie', serie)
+            .maybeSingle();
 
-    if (existe) {
-        // Eliminar chip provisional y mostrar error
-        chip.remove();
-        if ((JSON.parse(jsonField?.value || '[]')).length === 0) {
-            listaEl.innerHTML = '<span class="series-empty">Agrega series usando el campo de arriba o un escáner de código de barras.</span>';
+        if (existe) {
+            // Duplicado — eliminar chip provisional
+            chip.remove();
+            if (!listaEl?.querySelector('.serie-chip')) {
+                if (listaEl) listaEl.innerHTML =
+                    '<span class="series-empty">Agrega series usando el campo de arriba o un escáner.</span>';
+            }
+            mostrarAlertaInline(
+                `⛔ La serie <strong>${esc(serie)}</strong> ya existe en bodega` +
+                (existe.nombre ? ` (${esc(existe.nombre)})` : '') + '.',
+                'error'
+            );
+            actualizarContadorSeries(JSON.parse(jsonField?.value || '[]').length);
+            return;
         }
-        mostrarAlertaInline(
-            `⛔ La serie <strong>${serie}</strong> ya existe en bodega (${existe.nombre || 'sin nombre'}).`,
-            'error'
-        );
-        actualizarContadorSeries(JSON.parse(jsonField?.value || '[]').length);
-        return;
+
+        // Validación OK — confirmar chip como definitivo
+        chip.className = 'serie-chip';
+        chip.innerHTML = `<code>${esc(serie)}</code>
+            <button type="button" onclick="quitarSerie(this,'${esc(serie)}')">✕</button>`;
+
+        actuales.push(serie);
+        if (jsonField) jsonField.value = JSON.stringify(actuales);
+        actualizarContadorSeries(actuales.length);
+
+    } catch (err) {
+        // Si falla la validación en red, aceptar la serie (no bloquear el flujo)
+        chip.className = 'serie-chip serie-chip-sin-validar';
+        chip.innerHTML = `<code>${esc(serie)}</code>
+            <span title="Sin validar (sin conexión)" style="font-size:.7rem;opacity:.6">⚠️</span>
+            <button type="button" onclick="quitarSerie(this,'${esc(serie)}')">✕</button>`;
+
+        actuales.push(serie);
+        if (jsonField) jsonField.value = JSON.stringify(actuales);
+        actualizarContadorSeries(actuales.length);
+        console.warn('PROINTEL — agregarSerie sin validar BD:', err.message);
     }
-
-    // Validación OK — convertir chip provisional en definitivo
-    chip.className = 'serie-chip';
-    chip.innerHTML = `<code>${esc(serie)}</code><button type="button" onclick="quitarSerie(this,'${esc(serie)}')">✕</button>`;
-
-    actuales.push(serie);
-    jsonField.value = JSON.stringify(actuales);
-    actualizarContadorSeries(actuales.length);
 }
 
 function quitarSerie(btn, serie) {
