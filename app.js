@@ -3227,16 +3227,14 @@ async function verFacturaSalidaGrupo(correlativo) {
         const filasHTML = lineas.map((l, i) => {
             const art    = artMap[l.articulo_id] || {};
             const nombre = art.nombre || l.nombre_articulo || '—';
-            const codigo = art.codigo || '';
             const unidad = art.unidad_medida || 'und';
-            const serie  = l.numero_serie || 'N/A';
+            // Número de serie real — viene del campo numero_serie del registro
+            const serie  = l.numero_serie && l.numero_serie !== 'null'
+                           ? l.numero_serie : '—';
             return `<tr>
                 <td class="row-num">${i + 1}</td>
-                <td class="td-bold">${esc(nombre)}</td>
-                <td><code style="font-size:.78rem;font-family:var(--font-mono)">
-                    ${esc(codigo || '—')}
-                </code></td>
-                <td style="font-size:.78rem;font-family:var(--font-mono)">
+                <td class="td-bold" style="min-width:140px">${esc(nombre)}</td>
+                <td style="font-size:.78rem;font-family:var(--font-mono);color:var(--cyan)">
                     ${esc(serie)}
                 </td>
                 <td style="text-align:center;font-weight:700;font-family:var(--font-mono)">
@@ -3279,8 +3277,7 @@ async function verFacturaSalidaGrupo(correlativo) {
                         <tr>
                             <th>#</th>
                             <th>Artículo / Material</th>
-                            <th>Código</th>
-                            <th>Serie</th>
+                            <th>N° Serie</th>
                             <th style="text-align:center">Cant.</th>
                             <th style="text-align:center">Und.</th>
                         </tr>
@@ -3742,7 +3739,9 @@ async function abrirModalSalida() {
                                 <input type="text" id="sal-identificador"
                                     class="scanner-input"
                                     placeholder="Escanea o escribe la serie…"
-                                    autocomplete="off" />
+                                    autocomplete="off"
+                                    onblur="buscarPorSerie(this.value)"
+                                    onkeydown="if(event.key==='Enter'){event.preventDefault();buscarPorSerie(this.value);}" />
                                 <span id="sal-tipo-badge"
                                     class="tipo-badge tipo-seriado">SERIADO</span>
                             </div>
@@ -4083,6 +4082,96 @@ async function buscarArticuloSalida(q) {
 
     } catch (err) {
         console.warn('PROINTEL — buscarArticuloSalida:', err.message);
+    }
+}
+
+async function buscarPorSerie(serie) {
+    const s = (serie || '').trim();
+    if (!s) return;
+
+    // Solo actúa si el artículo seleccionado es seriado o no hay artículo aún
+    const cat = (_articuloSeleccionado?.categoria || _articuloSeleccionado?.tipo_material || '').toUpperCase();
+    const esMisc = cat === 'MISCELANEO' || cat === 'MISCELÁNEOS';
+    if (esMisc) return; // misceláneos no tienen serie
+
+    try {
+        const { data, error } = await window.supabase
+            .from('bodega')
+            .select('id, nombre, articulo, codigo, tipo_material, cantidad, estado, precio, unidad, serie')
+            .eq('serie', s)
+            .maybeSingle();
+
+        if (error) {
+            console.warn('PROINTEL — buscarPorSerie:', error.message);
+            return;
+        }
+
+        if (!data) {
+            _notificar('Serie no encontrada en inventario.');
+            return;
+        }
+
+        // Si ya hay un artículo seleccionado, solo autocompletar la serie
+        if (_articuloSeleccionado) {
+            // Confirmar que la serie pertenece al artículo seleccionado
+            const mismoProducto =
+                data.codigo === _articuloSeleccionado.codigo ||
+                (data.nombre || data.articulo) === _articuloSeleccionado.nombre;
+
+            if (!mismoProducto) {
+                _notificar(`⚠️ La serie pertenece a otro producto: ${esc(data.nombre || data.articulo)}`);
+            }
+            // Serie confirmada — no cambiar el artículo seleccionado
+            return;
+        }
+
+        // Sin artículo seleccionado — autocompletar todo desde la serie
+        const itemAutoFill = {
+            _tipo:       'articulo',
+            _fuente:     'bodega',
+            _bodega_id:  data.id,
+            art_id:      data.id,
+            nombre:      data.nombre || data.articulo || '—',
+            codigo:      data.codigo || '',
+            unidad:      data.unidad || 'und',
+            categoria:   (data.tipo_material === 'miscelaneo') ? 'MISCELANEO' : 'SERIADO',
+            tipo_material: data.tipo_material,
+            cantidad:    data.cantidad || 1,
+            serie:       data.serie,
+            estado:      data.estado,
+        };
+
+        // Llenar el buscador de artículo
+        const buscarEl = document.getElementById('sal-articulo-buscar');
+        if (buscarEl) buscarEl.value = itemAutoFill.nombre;
+
+        // Mostrar código interno
+        const codWrap = document.getElementById('sal-codigo-interno');
+        const codVal  = document.getElementById('sal-codigo-val');
+        if (codWrap && codVal && itemAutoFill.codigo) {
+            codVal.textContent = itemAutoFill.codigo;
+            codWrap.classList.remove('hidden');
+        }
+
+        // Seleccionar artículo sin cambiar el campo de serie
+        _articuloSeleccionado = itemAutoFill;
+
+        // Badge de stock
+        const stockEl = document.getElementById('sal-stock-badge');
+        if (stockEl) {
+            const ok = (data.estado || '').toLowerCase() === 'disponible';
+            stockEl.textContent   = ok ? '1 unidad disponible' : `Estado: ${data.estado}`;
+            stockEl.style.display = 'inline-block';
+            stockEl.style.background = ok ? 'rgba(0,230,118,.15)' : 'rgba(255,77,109,.15)';
+            stockEl.style.color   = ok ? '#00e676' : '#ff4d6d';
+            stockEl.style.border  = ok
+                ? '1px solid rgba(0,230,118,.3)' : '1px solid rgba(255,77,109,.3)';
+        }
+
+        _mostrarToastExito(`✅ Serie encontrada: ${esc(itemAutoFill.nombre)}`);
+
+    } catch (err) {
+        console.warn('PROINTEL — buscarPorSerie excepción:', err.message);
     }
 }
 
@@ -5827,8 +5916,8 @@ async function cargarMisArticulos() {
             <div class="table-wrap">
                 <table class="data-table" id="tabla-historial">
                     <thead><tr>
-                        <th>#</th><th>CORRELATIVO</th><th>ARTÍCULO</th>
-                        <th>CANTIDAD</th><th>DESPACHADO POR</th><th>FECHA</th><th>REGISTRO</th>
+                        <th>#</th><th>CORRELATIVO</th><th>ARTÍCULOS</th>
+                        <th>DESPACHADO POR</th><th>FECHA</th><th colspan="2">FACTURA</th>
                     </tr></thead>
                     <tbody id="hist-tbody">
                         <tr><td colspan="7" class="empty-row">⏳ Cargando…</td></tr>
@@ -6084,14 +6173,13 @@ async function cargarHistorialEntregas() {
     try {
         const { data: histRaw, error } = await window.supabase
             .from('registros_salida')
-            .select('id, correlativo, articulo_id, cantidad, fecha, nombre_articulo, despachado_por')
+            .select('id, correlativo, articulo_id, cantidad, fecha, nombre_articulo, despachado_por, numero_serie')
             .eq('tecnico_id', currentUser.id)
-            .order('correlativo', { ascending: false })
-            .limit(50);
+            .order('correlativo', { ascending: false });
 
         if (error) throw error;
 
-        // Enriquecer con nombre de artículo desde tabla articulos
+        // Enriquecer con nombre de artículo
         const artIds = [...new Set((histRaw||[]).map(h => h.articulo_id).filter(Boolean))];
         let artMap = {};
         if (artIds.length) {
@@ -6102,37 +6190,57 @@ async function cargarHistorialEntregas() {
             (arts||[]).forEach(a => { artMap[a.id] = a; });
         }
 
-        const hist = (histRaw||[]).map(h => ({ ...h, art: artMap[h.articulo_id] || null }));
+        // Agrupar por correlativo — una fila por factura
+        const porCorrelativo = {};
+        (histRaw||[]).forEach(h => {
+            const key = h.correlativo || h.id;
+            if (!porCorrelativo[key]) {
+                porCorrelativo[key] = {
+                    correlativo:   h.correlativo,
+                    despachado_por: h.despachado_por || 'Bodega Central',
+                    fecha:         h.fecha,
+                    primer_id:     h.id,
+                    items:         [],
+                };
+            }
+            porCorrelativo[key].items.push({
+                ...h,
+                art: artMap[h.articulo_id] || null,
+            });
+        });
 
-        if (!hist.length) {
+        const grupos = Object.values(porCorrelativo);
+
+        if (!grupos.length) {
             hTbody.innerHTML = '<tr><td colspan="7" class="empty-row">No tienes entregas registradas aún.</td></tr>';
             if (hCount) hCount.textContent = '';
             return;
         }
 
-        hTbody.innerHTML = hist.map((h, idx) => {
-            const artNombre = h.art?.nombre || h.nombre_articulo || '—';
-            const artCodigo = h.art?.codigo || '';
-            const unidad    = h.art?.unidad_medida || 'und';
-            const desp      = h.despachado_por || 'Bodega Central';
-            const fecha     = h.fecha
-                ? new Date(h.fecha).toLocaleDateString('es-SV')
-                : '—';
+        hTbody.innerHTML = grupos.map((g, idx) => {
+            const nItems  = g.items.length;
+            const fecha   = g.fecha
+                ? new Date(g.fecha).toLocaleDateString('es-SV') : '—';
+            // Resumen de artículos
+            const resumen = g.items.slice(0, 2)
+                .map(i => esc(i.art?.nombre || i.nombre_articulo || '—'))
+                .join(', ')
+                + (nItems > 2 ? ` +${nItems-2} más` : '');
+            const desp = esc(g.despachado_por);
+
             return `<tr>
                 <td class="row-num">${idx+1}</td>
-                <td><code class="sku-code">#${h.correlativo||'—'}</code></td>
-                <td class="td-bold">
-                    ${esc(artNombre)}
-                    ${artCodigo
-                        ? `<br><span style="font-size:.7rem;color:var(--dim)">${esc(artCodigo)}</span>`
-                        : ''}
+                <td><code class="sku-code">#${g.correlativo||'—'}</code></td>
+                <td style="font-size:.82rem">
+                    <span class="series-count-badge" style="margin-right:.3rem">${nItems}</span>
+                    ${resumen}
                 </td>
-                <td style="font-family:var(--font-mono)">${h.cantidad||'—'} ${esc(unidad)}</td>
-                <td style="font-size:.82rem">${esc(desp)}</td>
+                <td style="font-size:.82rem">${desp}</td>
                 <td class="td-date">${fecha}</td>
-                <td>
-                    <button class="btn-cyan btn-ver-registro" style="font-size:.75rem;padding:.3rem .7rem"
-                        onclick="verFacturaSalida('${h.id}')">
+                <td colspan="2">
+                    <button class="btn-cyan btn-ver-registro"
+                        style="font-size:.75rem;padding:.3rem .7rem"
+                        onclick="verFacturaSalidaGrupo(${g.correlativo})">
                         🧾 Ver PDF
                     </button>
                 </td>
@@ -6140,7 +6248,7 @@ async function cargarHistorialEntregas() {
         }).join('');
 
         if (hCount) hCount.textContent =
-            `${hist.length} entrega${hist.length!==1?'s':''}`;
+            `${grupos.length} factura${grupos.length!==1?'s':''} · ${(histRaw||[]).length} artículo${(histRaw||[]).length!==1?'s':''}`;
 
     } catch (err) {
         console.error('PROINTEL — cargarHistorialEntregas:', err);
