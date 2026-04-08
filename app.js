@@ -6082,38 +6082,54 @@ async function cargarMisArticulos() {
             if (!hist.length) {
                 hTbody.innerHTML =
                     '<tr><td colspan="7" class="empty-row">No tienes entregas registradas aún.</td></tr>';
-            } else {
-                hTbody.innerHTML = hist.map((h, idx) => {
-                const artNombre = h.art?.nombre || h.nombre_articulo || '—';
-                const artCodigo = h.art?.codigo || '';
-                const unidad    = h.art?.unidad_medida || 'und';
-                const desp      = h.despachado_por || 'Bodega Central';
-                const fecha     = h.fecha
-                    ? new Date(h.fecha).toLocaleDateString('es-SV')
-                    : '—';
+                if (hCount) hCount.textContent = '';
+                return;
+            }
+
+            // Agrupar por correlativo — una fila por factura
+            const porCorr = {};
+            hist.forEach(h => {
+                const key = h.correlativo || h.id;
+                if (!porCorr[key]) porCorr[key] = {
+                    correlativo:    h.correlativo,
+                    despachado_por: h.despachado_por || 'Bodega Central',
+                    fecha:          h.fecha,
+                    primer_id:      h.id,
+                    items:          [],
+                };
+                porCorr[key].items.push(h);
+            });
+
+            const grupos = Object.values(porCorr);
+            hTbody.innerHTML = grupos.map((g, idx) => {
+                const nItems  = g.items.length;
+                const fecha   = g.fecha
+                    ? new Date(g.fecha).toLocaleDateString('es-SV') : '—';
+                const resumen = g.items.slice(0, 2)
+                    .map(i => esc(i.art?.nombre || i.nombre_articulo || '—'))
+                    .join(', ')
+                    + (nItems > 2 ? ` +${nItems-2} más` : '');
                 return `<tr>
                     <td class="row-num">${idx+1}</td>
-                    <td><code class="sku-code">#${h.correlativo||'—'}</code></td>
-                    <td class="td-bold">
-                        ${esc(artNombre)}
-                        ${artCodigo
-                            ? `<br><span style="font-size:.7rem;color:var(--dim)">${esc(artCodigo)}</span>`
-                            : ''}
+                    <td><code class="sku-code">#${g.correlativo||'—'}</code></td>
+                    <td style="font-size:.83rem">
+                        <span class="series-count-badge" style="margin-right:.3rem">${nItems}</span>
+                        ${resumen}
                     </td>
-                    <td style="font-family:var(--font-mono)">${h.cantidad||'—'} ${esc(unidad)}</td>
-                    <td style="font-size:.82rem">${esc(desp)}</td>
+                    <td style="font-size:.82rem">${esc(g.despachado_por)}</td>
                     <td class="td-date">${fecha}</td>
-                    <td>
-                        <button class="btn-cyan btn-ver-registro" style="font-size:.75rem;padding:.3rem .7rem"
-                            onclick="verFacturaSalida('${h.id}')">
+                    <td colspan="2">
+                        <button class="btn-cyan btn-ver-registro"
+                            style="font-size:.75rem;padding:.3rem .7rem"
+                            onclick="verFacturaSalidaGrupo(${g.correlativo})">
                             🧾 Ver PDF
                         </button>
                     </td>
                 </tr>`;
             }).join('');
-            }
+
             if (hCount) hCount.textContent =
-                `${hist.length} entrega${hist.length!==1?'s':''}`;
+                `${grupos.length} factura${grupos.length!==1?'s':''} · ${hist.length} artículo${hist.length!==1?'s':''}`;
         };
         // Ejecutar render del historial
         renderHistorial();
