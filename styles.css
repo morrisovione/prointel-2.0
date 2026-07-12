@@ -1593,22 +1593,3 @@ code.serie-code {
     color: var(--cyan);
     border-color: var(--border-cyan);
 }
-#copyright {
-    position: fixed;
-    bottom: 10px;
-    right: 15px;
-    font-size: 12px;
-    color: #888888; /* Color gris claro */
-    font-family: sans-serif;
-    z-index: 9999;
-}
-
-#copyright a {
-    color: #888888;
-    text-decoration: none; /* Quita la línea de abajo del enlace */
-    font-weight: bold;
-}
-
-#copyright a:hover {
-    color: #bbbbbb; /* Se ilumina un poco al pasar el ratón */
-}
